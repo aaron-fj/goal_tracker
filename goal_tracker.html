@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Category Goal & Task Tracker with Reports</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX compilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const initialCategories = [
+            {
+                id: 'family',
+                name: '1. Family / Home',
+                color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                subcomponents: [
+                    { id: 'maint', name: 'Maintenance', tasks: [] },
+                    { 
+                        id: 'fam_time', 
+                        name: 'Family Time', 
+                        tasks: [
+                            { id: 't1', name: 'Teach kids something new', frequency: 'weekly', completed: {} },
+                            { id: 't2', name: 'Date night', frequency: 'monthly', completed: {} }
+                        ] 
+                    },
+                    { id: 'admin', name: 'Admin', tasks: [] }
+                ]
+            },
+            {
+                id: 'church',
+                name: '2. Church Calling',
+                color: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+                subcomponents: [
+                    { 
+                        id: 'ministering', 
+                        name: 'Ministering', 
+                        tasks: [
+                            { id: 'c1', name: 'Minister to assigned families', frequency: 'monthly', completed: {} },
+                            { id: 'c2', name: 'Empower ministering district', frequency: 'monthly', completed: {} },
+                            { id: 'c3', name: 'Empower presidency members in other districts', frequency: 'monthly', completed: {} },
+                            { id: 'c4', name: 'Update ministering assignments', frequency: 'quarterly', completed: {} }
+                        ] 
+                    },
+                    { 
+                        id: 'activities', 
+                        name: 'Activities', 
+                        tasks: [
+                            { id: 'c5', name: 'Plan EQ Activities', frequency: 'quarterly', completed: {} }
+                        ] 
+                    },
+                    { 
+                        id: 'councils', 
+                        name: 'Councils / Admin', 
+                        tasks: [
+                            { id: 'c6', name: 'Confirm with teacher', frequency: 'weekly', completed: {} },
+                            { id: 'c7', name: 'Print Bulletin', frequency: 'weekly', completed: {} },
+                            { id: 'c8', name: 'EQ Spotlight', frequency: 'weekly', completed: {} },
+                            { id: 'c9', name: 'EQ Presidency Meeting', frequency: 'monthly', completed: {} },
+                            { id: 'c10', name: 'Ward Council', frequency: 'bi-weekly', completed: {} },
+                            { id: 'c11', name: 'EQ / RS / Bishop Sync', frequency: 'bi-weekly', completed: {} },
+                            { id: 'c12', name: 'Update lesson schedule', frequency: 'monthly', completed: {} }
+                        ] 
+                    }
+                ]
+            },
+            {
+                id: 'consulting',
+                name: '3. Consulting',
+                color: 'bg-amber-50 text-amber-700 border-amber-200',
+                subcomponents: [
+                    { 
+                        id: 'research', 
+                        name: 'Research / Analysis', 
+                        tasks: [
+                            { id: 'con1', name: 'Add 1 project to portfolio page', frequency: 'monthly', completed: {} },
+                            { id: 'con2', name: '10 hours / week logged', frequency: 'weekly', completed: {} }
+                        ] 
+                    },
+                    { 
+                        id: 'marketing', 
+                        name: 'Marketing', 
+                        tasks: [
+                            { id: 'con3', name: '1 LinkedIn Post', frequency: 'monthly', completed: {} }
+                        ] 
+                    },
+                    { 
+                        id: 'prof_dev', 
+                        name: 'Professional Development', 
+                        tasks: [
+                            { id: 'con4', name: 'Identify certificates / courses to pursue', frequency: 'monthly', completed: {} }
+                        ] 
+                    }
+                ]
+            },
+            {
+                id: 'self_imp',
+                name: '4. Self-Improvement',
+                color: 'bg-sky-50 text-sky-700 border-sky-200',
+                subcomponents: [
+                    { 
+                        id: 'physical', 
+                        name: 'Physical', 
+                        tasks: [
+                            { id: 's1', name: 'Complete Triathlon (before end of year)', frequency: 'yearly', completed: {} },
+                            { id: 's2', name: 'Mobility / core training (15 min)', frequency: 'daily', completed: {} },
+                            { id: 's3', name: '10 miles running', frequency: 'weekly', completed: {} },
+                            { id: 's4', name: 'Swim', frequency: 'weekly', completed: {} }
+                        ] 
+                    },
+                    { 
+                        id: 'spiritual', 
+                        name: 'Spiritual', 
+                        tasks: [
+                            { id: 's5', name: 'Temple', frequency: 'monthly', completed: {} },
+                            { id: 's6', name: 'Scripture Study', frequency: 'daily', completed: {} }
+                        ] 
+                    },
+                    { 
+                        id: 'intellectual', 
+                        name: 'Intellectual', 
+                        tasks: [
+                            { id: 's7', name: 'Reading (30 min)', frequency: 'daily', completed: {} }
+                        ] 
+                    }
+                ]
+            }
+        ];
+
+        function App() {
+            const [categories, setCategories] = useState(() => {
+                const saved = localStorage.getItem('goal_tracker_data_v3');
+                return saved ? JSON.parse(saved) : initialCategories;
+            });
+            const [view, setView] = useState('daily'); // daily, weekly, monthly
+            const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
+            
+            // Modal states
+            const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+            const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+            const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+
+            // Add Task fields
+            const [selectedCategory, setSelectedCategory] = useState(initialCategories[0].id);
+            const [selectedSubcomp, setSelectedSubcomp] = useState(initialCategories[0].subcomponents[0].id);
+            const [newTaskName, setNewTaskName] = useState('');
+            const [newTaskFreq, setNewTaskFreq] = useState('daily');
+            const [newTaskDueDate, setNewTaskDueDate] = useState(new Date().toISOString().split('T')[0]);
+
+            // Report fields
+            const [reportTimeframe, setReportTimeframe] = useState('weekly');
+            const [reportCategoryScope, setReportCategoryScope] = useState('all');
+            const [userReportNotes, setUserReportNotes] = useState('');
+
+            useEffect(() => {
+                localStorage.setItem('goal_tracker_data_v3', JSON.stringify(categories));
+            }, [categories]);
+
+            // Date navigation
+            const handlePrevDate = () => {
+                const d = new Date(currentDate);
+                if (view === 'daily') d.setDate(d.getDate() - 1);
+                else if (view === 'weekly') d.setDate(d.getDate() - 7);
+                else if (view === 'monthly') d.setMonth(d.getMonth() - 1);
+                setCurrentDate(d.toISOString().split('T')[0]);
+            };
+
+            const handleNextDate = () => {
+                const d = new Date(currentDate);
+                if (view === 'daily') d.setDate(d.getDate() + 1);
+                else if (view === 'weekly') d.setDate(d.getDate() + 7);
+                else if (view === 'monthly') d.setMonth(d.getMonth() + 1);
+                setCurrentDate(d.toISOString().split('T')[0]);
+            };
+
+            const handleToday = () => {
+                setCurrentDate(new Date().toISOString().split('T')[0]);
+            };
+
+            const getDateKey = () => {
+                if (view === 'daily') return currentDate;
+                if (view === 'weekly') {
+                    const d = new Date(currentDate);
+                    const weekNum = Math.ceil(d.getDate() / 7);
+                    return `${d.getFullYear()}-W${d.getMonth() + 1}-${weekNum}`;
+                }
+                if (view === 'monthly') {
+                    const d = new Date(currentDate);
+                    return `${d.getFullYear()}-${d.getMonth() + 1}`;
+                }
+                return currentDate;
+            };
+
+            // Visibility filtering per view
+            const isTaskVisibleForView = (task) => {
+                if (view === 'daily') {
+                    if (task.frequency === 'daily') return true;
+                    if (task.frequency === 'one-off' && task.dueDate === currentDate) return true;
+                    return false;
+                }
+                if (view === 'weekly') {
+                    if (task.frequency === 'weekly' || task.frequency === 'bi-weekly') return true;
+                    if (task.frequency === 'one-off' && task.dueDate) {
+                        const taskDate = new Date(task.dueDate);
+                        const curr = new Date(currentDate);
+                        const firstDay = new Date(curr.setDate(curr.getDate() - curr.getDay()));
+                        const lastDay = new Date(firstDay);
+                        lastDay.setDate(lastDay.getDate() + 6);
+                        return taskDate >= firstDay && taskDate <= lastDay;
+                    }
+                    return false;
+                }
+                if (view === 'monthly') {
+                    if (['monthly', 'quarterly', 'yearly'].includes(task.frequency)) return true;
+                    if (task.frequency === 'one-off' && task.dueDate) {
+                        const taskDate = new Date(task.dueDate);
+                        const curr = new Date(currentDate);
+                        return taskDate.getFullYear() === curr.getFullYear() && taskDate.getMonth() === curr.getMonth();
+                    }
+                    return false;
+                }
+                return true;
+            };
+
+            const toggleTask = (catId, subId, taskId) => {
+                const key = getDateKey();
+                setCategories(prev => prev.map(cat => {
+                    if (cat.id !== catId) return cat;
+                    return {
+                        ...cat,
+                        subcomponents: cat.subcomponents.map(sub => {
+                            if (sub.id !== subId) return sub;
+                            return {
+                                ...sub,
+                                tasks: sub.tasks.map(task => {
+                                    if (task.id !== taskId) return task;
+                                    const currentStatus = !!task.completed[key];
+                                    return {
+                                        ...task,
+                                        completed: { ...task.completed, [key]: !currentStatus }
+                                    };
+                                })
+                            };
+                        })
+                    };
+                }));
+            };
+
+            const handleAddTask = (e) => {
+                e.preventDefault();
+                if (!newTaskName.trim()) return;
+
+                const newTask = {
+                    id: 'task_' + Date.now(),
+                    name: newTaskName.trim(),
+                    frequency: newTaskFreq,
+                    dueDate: newTaskFreq === 'one-off' ? newTaskDueDate : null,
+                    completed: {}
+                };
+
+                setCategories(prev => prev.map(cat => {
+                    if (cat.id !== selectedCategory) return cat;
+                    return {
+                        ...cat,
+                        subcomponents: cat.subcomponents.map(sub => {
+                            if (sub.id !== selectedSubcomp) return sub;
+                            return {
+                                ...sub,
+                                tasks: [...sub.tasks, newTask]
+                            };
+                        })
+                    };
+                }));
+
+                setNewTaskName('');
+                setIsTaskModalOpen(false);
+            };
+
+            // Export backup JSON
+            const exportBackup = () => {
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(categories, null, 2));
+                const downloadAnchor = document.createElement('a');
+                downloadAnchor.setAttribute("href", dataStr);
+                downloadAnchor.setAttribute("download", `goal_tracker_backup_${new Date().toISOString().split('T')[0]}.json`);
+                document.body.appendChild(downloadAnchor);
+                downloadAnchor.click();
+                downloadAnchor.remove();
+            };
+
+            // Import backup JSON
+            const importBackup = (e) => {
+                const fileReader = new FileReader();
+                if (e.target.files[0]) {
+                    fileReader.readAsText(e.target.files[0], "UTF-8");
+                    fileReader.onload = (event) => {
+                        try {
+                            const parsed = JSON.parse(event.target.result);
+                            setCategories(parsed);
+                            alert("Data successfully restored from backup!");
+                            setIsSyncModalOpen(false);
+                        } catch (err) {
+                            alert("Invalid backup file format.");
+                        }
+                    };
+                }
+            };
+
+            // Calculate visible progress
+            const key = getDateKey();
+            let totalTasks = 0;
+            let completedTasks = 0;
+
+            categories.forEach(cat => {
+                cat.subcomponents.forEach(sub => {
+                    sub.tasks.forEach(task => {
+                        if (isTaskVisibleForView(task)) {
+                            totalTasks++;
+                            if (task.completed[key]) completedTasks++;
+                        }
+                    });
+                });
+            });
+
+            const percent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+            // Report generation calculations
+            const generateReportData = () => {
+                let scopedCats = categories;
+                if (reportCategoryScope !== 'all') {
+                    scopedCats = categories.filter(c => c.id === reportCategoryScope);
+                }
+
+                let total = 0;
+                let completed = 0;
+                const catBreakdown = [];
+
+                scopedCats.forEach(cat => {
+                    let catTotal = 0;
+                    let catDone = 0;
+                    cat.subcomponents.forEach(sub => {
+                        sub.tasks.forEach(task => {
+                            catTotal++;
+                            total++;
+                            if (task.completed[key]) {
+                                catDone++;
+                                completed++;
+                            }
+                        });
+                    });
+                    catBreakdown.push({
+                        name: cat.name,
+                        total: catTotal,
+                        done: catDone,
+                        rate: catTotal > 0 ? Math.round((catDone / catTotal) * 100) : 0
+                    });
+                });
+
+                const overallRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+                // Smart Analytical Feedback
+                let feedback = "";
+                if (overallRate >= 80) {
+                    feedback = "🟢 Excellent execution. You are maintaining high consistency across your scheduled routines and commitments.";
+                } else if (overallRate >= 50) {
+                    feedback = "🟡 Moderate momentum. Some tasks are being met, but certain subcomponents or recurring goals require sharper daily focus.";
+                } else {
+                    feedback = "🔴 Low completion rate detected for this timeframe. Consider adjusting task loads or clearing schedule bottlenecks.";
+                }
+
+                return { total, completed, overallRate, catBreakdown, feedback };
+            };
+
+            const reportData = generateReportData();
+
+            return (
+                <div className="max-w-5xl mx-auto p-4 sm:p-6">
+                    {/* Header */}
+                    <header className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
+                        <div>
+                            <h1 className="text-2xl font-bold text-slate-900">Multi-Category Goal & Task Tracker</h1>
+                            <p className="text-sm text-slate-500">Track daily habits, weekly targets, one-off milestones, and analytics.</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex items-center bg-slate-100 rounded-xl p-1 border border-slate-200">
+                                <button onClick={handlePrevDate} title="Previous" className="p-1.5 hover:bg-white rounded-lg text-slate-600 transition shadow-sm font-bold text-xs">◀</button>
+                                <button onClick={handleToday} className="px-2 text-xs font-semibold text-slate-700 hover:text-blue-600">Today</button>
+                                <button onClick={handleNextDate} title="Next" className="p-1.5 hover:bg-white rounded-lg text-slate-600 transition shadow-sm font-bold text-xs">▶</button>
+                            </div>
+                            <input 
+                                type="date" 
+                                value={currentDate} 
+                                onChange={e => setCurrentDate(e.target.value)}
+                                className="px-3 py-2 border rounded-xl text-sm font-medium bg-slate-50 border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button 
+                                onClick={() => setIsReportModalOpen(true)}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-3 py-2 rounded-xl text-sm transition shadow-sm"
+                            >
+                                📊 Reports
+                            </button>
+                            <button 
+                                onClick={() => setIsSyncModalOpen(true)}
+                                className="bg-slate-800 hover:bg-slate-900 text-white font-medium px-3 py-2 rounded-xl text-sm transition shadow-sm"
+                            >
+                                💾 Backup
+                            </button>
+                            <button 
+                                onClick={() => setIsTaskModalOpen(true)}
+                                className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-xl text-sm transition shadow-sm"
+                            >
+                                + Add Task
+                            </button>
+                        </div>
+                    </header>
+
+                    {/* View Switcher & Progress Bar */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+                        <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
+                            <div className="inline-flex rounded-xl bg-slate-100 p-1">
+                                <button 
+                                    onClick={() => setView('daily')}
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === 'daily' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                >
+                                    Daily View
+                                </button>
+                                <button 
+                                    onClick={() => setView('weekly')}
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === 'weekly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                >
+                                    Weekly View
+                                </button>
+                                <button 
+                                    onClick={() => setView('monthly')}
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === 'monthly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                >
+                                    Monthly View
+                                </button>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Completion Status ({view})</span>
+                                <div className="text-lg font-bold text-slate-800">{completedTasks} / {totalTasks} Tasks ({percent}%)</div>
+                            </div>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                            <div className="bg-blue-600 h-3 rounded-full transition-all duration-500" style={{ width: `${percent}%` }}></div>
+                        </div>
+                    </div>
+
+                    {/* Categories Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {categories.map(cat => {
+                            const hasVisible = cat.subcomponents.some(sub => sub.tasks.some(isTaskVisibleForView));
+                            return (
+                                <div key={cat.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between">
+                                    <div>
+                                        <div className={`inline-block px-3 py-1 rounded-full text-xs font-semibold border mb-4 ${cat.color}`}>
+                                            {cat.name}
+                                        </div>
+                                        <div className="space-y-4">
+                                            {cat.subcomponents.map(sub => {
+                                                const visibleSubTasks = sub.tasks.filter(isTaskVisibleForView);
+                                                if (visibleSubTasks.length === 0) return null;
+                                                return (
+                                                    <div key={sub.id} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                                                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">{sub.name}</h4>
+                                                        <ul className="space-y-2">
+                                                            {visibleSubTasks.map(task => {
+                                                                const isChecked = !!task.completed[key];
+                                                                return (
+                                                                    <li key={task.id} className="flex items-center justify-between group">
+                                                                        <label className="flex items-center gap-3 cursor-pointer select-none">
+                                                                            <input 
+                                                                                type="checkbox" 
+                                                                                checked={isChecked}
+                                                                                onChange={() => toggleTask(cat.id, sub.id, task.id)}
+                                                                                className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                                                                            />
+                                                                            <span className={`text-sm ${isChecked ? 'line-through text-slate-400' : 'text-slate-700 font-medium'}`}>
+                                                                                {task.name}
+                                                                            </span>
+                                                                        </label>
+                                                                        <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-medium">
+                                                                            {task.frequency === 'one-off' ? `Due: ${task.dueDate}` : task.frequency}
+                                                                        </span>
+                                                                    </li>
+                                                                );
+                                                            })}
+                                                        </ul>
+                                                    </div>
+                                                );
+                                            })}
+                                            {!hasVisible && (
+                                                <p className="text-xs text-slate-400 italic py-2">No tasks scheduled for this {view}.</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Add Task Modal */}
+                    {isTaskModalOpen && (
+                        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200">
+                                <h3 className="text-lg font-bold text-slate-900 mb-4">Add New Task</h3>
+                                <form onSubmit={handleAddTask} className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Category</label>
+                                        <select 
+                                            value={selectedCategory} 
+                                            onChange={e => {
+                                                setSelectedCategory(e.target.value);
+                                                const cat = categories.find(c => c.id === e.target.value);
+                                                if (cat && cat.subcomponents.length > 0) setSelectedSubcomp(cat.subcomponents[0].id);
+                                            }}
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Subcomponent</label>
+                                        <select 
+                                            value={selectedSubcomp} 
+                                            onChange={e => setSelectedSubcomp(e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            {categories.find(c => c.id === selectedCategory)?.subcomponents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Task Name</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="e.g. Prepare presentation" 
+                                            value={newTaskName}
+                                            onChange={e => setNewTaskName(e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Frequency / Type</label>
+                                        <select 
+                                            value={newTaskFreq} 
+                                            onChange={e => setNewTaskFreq(e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            <option value="daily">Daily</option>
+                                            <option value="weekly">Weekly</option>
+                                            <option value="bi-weekly">Bi-Weekly</option>
+                                            <option value="monthly">Monthly</option>
+                                            <option value="quarterly">Quarterly</option>
+                                            <option value="yearly">Yearly</option>
+                                            <option value="one-off">One-Off Task</option>
+                                        </select>
+                                    </div>
+                                    {newTaskFreq === 'one-off' && (
+                                        <div>
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Due By Date</label>
+                                            <input 
+                                                type="date" 
+                                                value={newTaskDueDate}
+                                                onChange={e => setNewTaskDueDate(e.target.value)}
+                                                className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                                required
+                                            />
+                                        </div>
+                                    )}
+                                    <div className="flex justify-end gap-3 mt-6">
+                                        <button type="button" onClick={() => setIsTaskModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button>
+                                        <button type="submit" className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm">Save Task</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Report Generator Modal */}
+                    {isReportModalOpen && (
+                        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="text-xl font-bold text-slate-900">📊 Performance & Analytical Report</h3>
+                                    <button onClick={() => setIsReportModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg font-bold">✕</button>
+                                </div>
+                                <div className="space-y-4 mb-6">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Report Timeframe</label>
+                                            <select value={reportTimeframe} onChange={e => setReportTimeframe(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300">
+                                                <option value="weekly">Weekly Summary</option>
+                                                <option value="monthly">Monthly Summary</option>
+                                                <option value="quarterly">Quarterly Review</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Category Scope</label>
+                                            <select value={reportCategoryScope} onChange={e => setReportCategoryScope(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300">
+                                                <option value="all">All Categories (Global)</option>
+                                                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {/* Analytics Executive Summary */}
+                                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-3">
+                                        <h4 className="font-bold text-slate-800 text-sm">Executive Overview</h4>
+                                        <div className="grid grid-cols-3 gap-2 text-center">
+                                            <div className="bg-white p-2 rounded-lg border border-slate-200">
+                                                <span className="text-[10px] text-slate-400 uppercase font-semibold">Total Tasks</span>
+                                                <div className="text-lg font-bold text-slate-800">{reportData.total}</div>
+                                            </div>
+                                            <div className="bg-white p-2 rounded-lg border border-slate-200">
+                                                <span className="text-[10px] text-slate-400 uppercase font-semibold">Completed</span>
+                                                <div className="text-lg font-bold text-emerald-600">{reportData.completed}</div>
+                                            </div>
+                                            <div className="bg-white p-2 rounded-lg border border-slate-200">
+                                                <span className="text-[10px] text-slate-400 uppercase font-semibold">Completion %</span>
+                                                <div className="text-lg font-bold text-blue-600">{reportData.overallRate}%</div>
+                                            </div>
+                                        </div>
+                                        <div className="text-xs font-medium text-slate-700 bg-white p-3 rounded-lg border border-slate-200">
+                                            <strong>Analytical AI Feedback:</strong> {reportData.feedback}
+                                        </div>
+                                    </div>
+
+                                    {/* Category Breakdown */}
+                                    <div>
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Category Performance Breakdown</h4>
+                                        <div className="space-y-2">
+                                            {reportData.catBreakdown.map((cb, idx) => (
+                                                <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200 flex justify-between items-center text-sm">
+                                                    <span className="font-medium text-slate-700">{cb.name}</span>
+                                                    <span className="text-xs font-semibold px-2 py-1 bg-slate-100 rounded-md text-slate-600">{cb.done} / {cb.total} ({cb.rate}%)</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* User Reflections / Notes */}
+                                    <div>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">User Notes & Reflections</label>
+                                        <textarea 
+                                            rows="3" 
+                                            placeholder="Add personal observations, schedule notes, or focus items for next period..." 
+                                            value={userReportNotes}
+                                            onChange={e => setUserReportNotes(e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                        ></textarea>
+                                    </div>
+                                </div>
+                                <div className="flex justify-end gap-3">
+                                    <button onClick={() => setIsReportModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">Close</button>
+                                    <button onClick={() => window.print()} className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm">Print / Save as PDF</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Backup & Sync Modal */}
+                    {isSyncModalOpen && (
+                        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200">
+                                <h3 className="text-lg font-bold text-slate-900 mb-4">💾 Backup & Restore Data</h3>
+                                <p className="text-xs text-slate-500 mb-4">Download a JSON backup of your goal state to move between your laptop and iPhone, or restore an existing backup file.</p>
+                                <div className="space-y-3">
+                                    <button onClick={exportBackup} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl text-sm transition shadow-sm">
+                                        📥 Export Backup File (JSON)
+                                    </button>
+                                    <div>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Restore from Backup File</label>
+                                        <input type="file" accept=".json" onChange={importBackup} className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" />
+                                    </div>
+                                </div>
+                                <div className="flex justify-end mt-6">
+                                    <button onClick={() => setIsSyncModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">Close</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>

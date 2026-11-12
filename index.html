@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-Category Goal & Task Tracker with Cloud Sync</title>
+    <title>Multi-Category Goal & Task Tracker with Master Reports</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React & ReactDOM CDN -->
@@ -32,8 +32,8 @@
                         id: 'fam_time', 
                         name: 'Family Time', 
                         tasks: [
-                            { id: 't1', name: 'Teach kids something new', frequency: 'weekly', completed: {} },
-                            { id: 't2', name: 'Date night', frequency: 'monthly', completed: {} }
+                            { id: 't1', name: 'Teach kids something new', freqType: 'weekly', completed: {} },
+                            { id: 't2', name: 'Date night', freqType: 'monthly', completed: {} }
                         ] 
                     },
                     { id: 'admin', name: 'Admin', tasks: [] }
@@ -48,30 +48,16 @@
                         id: 'ministering', 
                         name: 'Ministering', 
                         tasks: [
-                            { id: 'c1', name: 'Minister to assigned families', frequency: 'monthly', completed: {} },
-                            { id: 'c2', name: 'Empower ministering district', frequency: 'monthly', completed: {} },
-                            { id: 'c3', name: 'Empower presidency members in other districts', frequency: 'monthly', completed: {} },
-                            { id: 'c4', name: 'Update ministering assignments', frequency: 'quarterly', completed: {} }
-                        ] 
-                    },
-                    { 
-                        id: 'activities', 
-                        name: 'Activities', 
-                        tasks: [
-                            { id: 'c5', name: 'Plan EQ Activities', frequency: 'quarterly', completed: {} }
+                            { id: 'c1', name: 'Minister to assigned families', freqType: 'monthly', completed: {} },
+                            { id: 'c2', name: 'Empower ministering district', freqType: 'monthly', completed: {} }
                         ] 
                     },
                     { 
                         id: 'councils', 
                         name: 'Councils / Admin', 
                         tasks: [
-                            { id: 'c6', name: 'Confirm with teacher', frequency: 'weekly', completed: {} },
-                            { id: 'c7', name: 'Print Bulletin', frequency: 'weekly', completed: {} },
-                            { id: 'c8', name: 'EQ Spotlight', frequency: 'weekly', completed: {} },
-                            { id: 'c9', name: 'EQ Presidency Meeting', frequency: 'monthly', completed: {} },
-                            { id: 'c10', name: 'Ward Council', frequency: 'bi-weekly', completed: {} },
-                            { id: 'c11', name: 'EQ / RS / Bishop Sync', frequency: 'bi-weekly', completed: {} },
-                            { id: 'c12', name: 'Update lesson schedule', frequency: 'monthly', completed: {} }
+                            { id: 'c6', name: 'Confirm with teacher', freqType: 'weekly', completed: {} },
+                            { id: 'c7', name: 'Print Bulletin', freqType: 'weekly', completed: {} }
                         ] 
                     }
                 ]
@@ -85,22 +71,7 @@
                         id: 'research', 
                         name: 'Research / Analysis', 
                         tasks: [
-                            { id: 'con1', name: 'Add 1 project to portfolio page', frequency: 'monthly', completed: {} },
-                            { id: 'con2', name: '10 hours / week logged', frequency: 'weekly', completed: {} }
-                        ] 
-                    },
-                    { 
-                        id: 'marketing', 
-                        name: 'Marketing', 
-                        tasks: [
-                            { id: 'con3', name: '1 LinkedIn Post', frequency: 'monthly', completed: {} }
-                        ] 
-                    },
-                    { 
-                        id: 'prof_dev', 
-                        name: 'Professional Development', 
-                        tasks: [
-                            { id: 'con4', name: 'Identify certificates / courses to pursue', frequency: 'monthly', completed: {} }
+                            { id: 'con2', name: '10 hours / week logged', freqType: 'weekly', completed: {} }
                         ] 
                     }
                 ]
@@ -114,25 +85,8 @@
                         id: 'physical', 
                         name: 'Physical', 
                         tasks: [
-                            { id: 's1', name: 'Complete Triathlon (before end of year)', frequency: 'yearly', completed: {} },
-                            { id: 's2', name: 'Mobility / core training (15 min)', frequency: 'daily', completed: {} },
-                            { id: 's3', name: '10 miles running', frequency: 'weekly', completed: {} },
-                            { id: 's4', name: 'Swim', frequency: 'weekly', completed: {} }
-                        ] 
-                    },
-                    { 
-                        id: 'spiritual', 
-                        name: 'Spiritual', 
-                        tasks: [
-                            { id: 's5', name: 'Temple', frequency: 'monthly', completed: {} },
-                            { id: 's6', name: 'Scripture Study', frequency: 'daily', completed: {} }
-                        ] 
-                    },
-                    { 
-                        id: 'intellectual', 
-                        name: 'Intellectual', 
-                        tasks: [
-                            { id: 's7', name: 'Reading (30 min)', frequency: 'daily', completed: {} }
+                            { id: 's2', name: 'Mobility / core training (15 min)', freqType: 'daily', completed: {} },
+                            { id: 's3', name: '10 miles running', freqType: 'weekly', completed: {} }
                         ] 
                     }
                 ]
@@ -141,7 +95,7 @@
 
         function App() {
             const [categories, setCategories] = useState(() => {
-                const saved = localStorage.getItem('goal_tracker_data_v5');
+                const saved = localStorage.getItem('goal_tracker_data_v8');
                 return saved ? JSON.parse(saved) : initialCategories;
             });
             const [view, setView] = useState('daily');
@@ -152,16 +106,20 @@
             const [isReportModalOpen, setIsReportModalOpen] = useState(false);
             const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
 
-            // Add Task fields
+            // Add Task granular state
             const [selectedCategory, setSelectedCategory] = useState(initialCategories[0].id);
             const [selectedSubcomp, setSelectedSubcomp] = useState(initialCategories[0].subcomponents[0].id);
             const [newTaskName, setNewTaskName] = useState('');
-            const [newTaskFreq, setNewTaskFreq] = useState('daily');
+            const [newTaskFreqType, setNewTaskFreqType] = useState('daily');
+            const [newTaskDays, setNewTaskDays] = useState([1, 3, 5]); // Mon, Wed, Fri default
+            const [newTaskNthWeek, setNewTaskNthWeek] = useState(2); // e.g. 2nd
+            const [newTaskNthDay, setNewTaskNthDay] = useState(2); // e.g. Tuesday
             const [newTaskDueDate, setNewTaskDueDate] = useState(new Date().toISOString().split('T')[0]);
 
             // Report fields
             const [reportTimeframe, setReportTimeframe] = useState('weekly');
             const [reportCategoryScope, setReportCategoryScope] = useState('all');
+            const [isMasterReport, setIsMasterReport] = useState(false);
             const [userReportNotes, setUserReportNotes] = useState('');
 
             // Firebase Cloud Sync Configuration State
@@ -177,7 +135,7 @@
             const unsubscribeRef = useRef(null);
 
             useEffect(() => {
-                localStorage.setItem('goal_tracker_data_v5', JSON.stringify(categories));
+                localStorage.setItem('goal_tracker_data_v8', JSON.stringify(categories));
             }, [categories]);
 
             useEffect(() => {
@@ -230,19 +188,17 @@
                 }
 
                 return () => {
-                    if (unsubscribeRef.current) {
-                        unsubscribeRef.current();
-                    }
+                    if (unsubscribeRef.current) unsubscribeRef.current();
                 };
             }, [isCloudSyncActive, firebaseConfigInput]);
 
             const updateCategoriesAndCloud = (newCategoriesOrUpdater) => {
                 setCategories(prev => {
                     const nextVal = typeof newCategoriesOrUpdater === 'function' ? newCategoriesOrUpdater(prev) : newCategoriesOrUpdater;
-                    
                     if (isCloudSyncActive && dbRef.current) {
-                        const docRef = dbRef.current.collection('goal_trackers').doc('main_user_data');
-                        docRef.set({ categories: nextVal }).catch(err => console.error("Cloud write error:", err));
+                        dbRef.current.collection('goal_trackers').doc('main_user_data')
+                            .set({ categories: nextVal })
+                            .catch(err => console.error("Cloud write error:", err));
                     }
                     return nextVal;
                 });
@@ -282,30 +238,61 @@
                 return currentDate;
             };
 
+            const matchesNthWeekday = (dateStr, targetNth, targetDay) => {
+                const d = new Date(dateStr);
+                if (d.getDay() !== Number(targetDay)) return false;
+                let count = 0;
+                const temp = new Date(d.getFullYear(), d.getMonth(), 1);
+                while (temp <= d) {
+                    if (temp.getDay() === Number(targetDay)) count++;
+                    temp.setDate(temp.getDate() + 1);
+                }
+                return count === Number(targetNth);
+            };
+
+            const taskOccursOnDate = (task, dateStr) => {
+                const d = new Date(dateStr);
+                const dayOfWeek = d.getDay();
+                const type = task.freqType || task.frequency;
+
+                if (type === 'daily') return true;
+                if (type === 'weekdays') return dayOfWeek >= 1 && dayOfWeek <= 5;
+                if (type === 'weekends') return dayOfWeek === 0 || dayOfWeek === 6;
+                if (type === 'custom-weekly') {
+                    const days = task.customDays || [];
+                    return days.includes(dayOfWeek);
+                }
+                if (type === 'nth-weekday') {
+                    return matchesNthWeekday(dateStr, task.nthWeek, task.nthDay);
+                }
+                if (type === 'one-off') {
+                    return task.dueDate === dateStr;
+                }
+                return true;
+            };
+
             const isTaskVisibleForView = (task) => {
                 if (view === 'daily') {
-                    if (task.frequency === 'daily') return true;
-                    if (task.frequency === 'one-off' && task.dueDate === currentDate) return true;
-                    return false;
+                    return taskOccursOnDate(task, currentDate);
                 }
                 if (view === 'weekly') {
-                    if (task.frequency === 'weekly' || task.frequency === 'bi-weekly') return true;
-                    if (task.frequency === 'one-off' && task.dueDate) {
-                        const taskDate = new Date(task.dueDate);
-                        const curr = new Date(currentDate);
-                        const firstDay = new Date(curr.setDate(curr.getDate() - curr.getDay()));
-                        const lastDay = new Date(firstDay);
-                        lastDay.setDate(lastDay.getDate() + 6);
-                        return taskDate >= firstDay && taskDate <= lastDay;
+                    const curr = new Date(currentDate);
+                    const firstDay = new Date(curr.setDate(curr.getDate() - curr.getDay()));
+                    for (let i = 0; i < 7; i++) {
+                        const checkDate = new Date(firstDay);
+                        checkDate.setDate(checkDate.getDate() + i);
+                        if (taskOccursOnDate(task, checkDate.toISOString().split('T')[0])) return true;
                     }
                     return false;
                 }
                 if (view === 'monthly') {
-                    if (['monthly', 'quarterly', 'yearly'].includes(task.frequency)) return true;
-                    if (task.frequency === 'one-off' && task.dueDate) {
-                        const taskDate = new Date(task.dueDate);
-                        const curr = new Date(currentDate);
-                        return taskDate.getFullYear() === curr.getFullYear() && taskDate.getMonth() === curr.getMonth();
+                    const curr = new Date(currentDate);
+                    const year = curr.getFullYear();
+                    const month = curr.getMonth();
+                    const daysInMonth = new Date(year, month + 1, 0).getDate();
+                    for (let day = 1; day <= daysInMonth; day++) {
+                        const checkStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        if (taskOccursOnDate(task, checkStr)) return true;
                     }
                     return false;
                 }
@@ -336,6 +323,23 @@
                 }));
             };
 
+            const deleteTask = (catId, subId, taskId) => {
+                if (!confirm("Are you sure you want to delete this task?")) return;
+                updateCategoriesAndCloud(prev => prev.map(cat => {
+                    if (cat.id !== catId) return cat;
+                    return {
+                        ...cat,
+                        subcomponents: cat.subcomponents.map(sub => {
+                            if (sub.id !== subId) return sub;
+                            return {
+                                ...sub,
+                                tasks: sub.tasks.filter(task => task.id !== taskId)
+                            };
+                        })
+                    };
+                }));
+            };
+
             const handleAddTask = (e) => {
                 e.preventDefault();
                 if (!newTaskName.trim()) return;
@@ -343,8 +347,11 @@
                 const newTask = {
                     id: 'task_' + Date.now(),
                     name: newTaskName.trim(),
-                    frequency: newTaskFreq,
-                    dueDate: newTaskFreq === 'one-off' ? newTaskDueDate : null,
+                    freqType: newTaskFreqType,
+                    customDays: newTaskDays,
+                    nthWeek: newTaskNthWeek,
+                    nthDay: newTaskNthDay,
+                    dueDate: newTaskFreqType === 'one-off' ? newTaskDueDate : null,
                     completed: {}
                 };
 
@@ -412,7 +419,7 @@
 
             const generateReportData = () => {
                 let scopedCats = categories;
-                if (reportCategoryScope !== 'all') {
+                if (!isMasterReport && reportCategoryScope !== 'all') {
                     scopedCats = categories.filter(c => c.id === reportCategoryScope);
                 }
 
@@ -447,6 +454,24 @@
             };
 
             const reportData = generateReportData();
+
+            const getFreqLabel = (task) => {
+                const type = task.freqType || task.frequency;
+                if (type === 'daily') return 'Daily';
+                if (type === 'weekdays') return 'Mon-Fri';
+                if (type === 'weekends') return 'Weekends';
+                if (type === 'custom-weekly') {
+                    const map = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                    return (task.customDays || []).map(d => map[d]).join(', ');
+                }
+                if (type === 'nth-weekday') {
+                    const weeks = ['1st', '2nd', '3rd', '4th', '5th'];
+                    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                    return `${weeks[task.nthWeek - 1]} ${days[task.nthDay]}`;
+                }
+                if (type === 'one-off') return `Due: ${task.dueDate}`;
+                return type;
+            };
 
             return (
                 <div className="max-w-5xl mx-auto p-4 sm:p-6">
@@ -536,9 +561,18 @@
                                                                                 {task.name}
                                                                             </span>
                                                                         </label>
-                                                                        <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-medium">
-                                                                            {task.frequency === 'one-off' ? `Due: ${task.dueDate}` : task.frequency}
-                                                                        </span>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-medium">
+                                                                                {getFreqLabel(task)}
+                                                                            </span>
+                                                                            <button 
+                                                                                onClick={() => deleteTask(cat.id, sub.id, task.id)}
+                                                                                title="Delete task"
+                                                                                className="text-slate-300 hover:text-red-500 transition text-xs px-1 font-bold"
+                                                                            >
+                                                                                ✕
+                                                                            </button>
+                                                                        </div>
                                                                     </li>
                                                                 );
                                                             })}
@@ -560,7 +594,7 @@
                     {isTaskModalOpen && (
                         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                             <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200">
-                                <h3 className="text-lg font-bold text-slate-900 mb-4">Add New Task</h3>
+                                <h3 className="text-lg font-bold text-slate-900 mb-4">Add Granular Task</h3>
                                 <form onSubmit={handleAddTask} className="space-y-4">
                                     <div>
                                         <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Category</label>
@@ -590,7 +624,7 @@
                                         <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Task Name</label>
                                         <input 
                                             type="text" 
-                                            placeholder="e.g. Prepare presentation" 
+                                            placeholder="e.g. Weekly Review / Team Sync" 
                                             value={newTaskName}
                                             onChange={e => setNewTaskName(e.target.value)}
                                             className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
@@ -598,22 +632,90 @@
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Frequency</label>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Recurrence Pattern</label>
                                         <select 
-                                            value={newTaskFreq} 
-                                            onChange={e => setNewTaskFreq(e.target.value)}
+                                            value={newTaskFreqType} 
+                                            onChange={e => setNewTaskFreqType(e.target.value)}
                                             className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
                                         >
                                             <option value="daily">Daily</option>
-                                            <option value="weekly">Weekly</option>
-                                            <option value="bi-weekly">Bi-Weekly</option>
-                                            <option value="monthly">Monthly</option>
+                                            <option value="weekdays">Weekdays (Mon - Fri)</option>
+                                            <option value="weekends">Weekends (Sat & Sun)</option>
+                                            <option value="custom-weekly">Weekly on Specific Days</option>
+                                            <option value="nth-weekday">Nth Weekday of Month (e.g. 2nd Tuesday)</option>
+                                            <option value="monthly">Monthly (Standard)</option>
                                             <option value="quarterly">Quarterly</option>
                                             <option value="yearly">Yearly</option>
-                                            <option value="one-off">One-Off Task</option>
+                                            <option value="one-off">One-Off Task (Due Date)</option>
                                         </select>
                                     </div>
-                                    {newTaskFreq === 'one-off' && (
+
+                                    {/* Custom Weekly Day Selector */}
+                                    {newTaskFreqType === 'custom-weekly' && (
+                                        <div>
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Select Active Days</label>
+                                            <div className="flex gap-1 justify-between">
+                                                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayName, idx) => {
+                                                    const isSelected = newTaskDays.includes(idx);
+                                                    return (
+                                                        <button
+                                                            type="button"
+                                                            key={idx}
+                                                            onClick={() => {
+                                                                if (isSelected) {
+                                                                    setNewTaskDays(newTaskDays.filter(d => d !== idx));
+                                                                } else {
+                                                                    setNewTaskDays([...newTaskDays, idx]);
+                                                                }
+                                                            }}
+                                                            className={`flex-1 py-1.5 text-xs font-bold rounded-lg border transition ${isSelected ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-slate-50 text-slate-600 border-slate-300 hover:bg-slate-100'}`}
+                                                        >
+                                                            {dayName[0]}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Nth Weekday Selector */}
+                                    {newTaskFreqType === 'nth-weekday' && (
+                                        <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                            <div>
+                                                <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Occurrence</label>
+                                                <select 
+                                                    value={newTaskNthWeek} 
+                                                    onChange={e => setNewTaskNthWeek(Number(e.target.value))}
+                                                    className="w-full px-2 py-1.5 border rounded-lg text-xs bg-white border-slate-300"
+                                                >
+                                                    <option value="1">1st of month</option>
+                                                    <option value="2">2nd of month</option>
+                                                    <option value="3">3rd of month</option>
+                                                    <option value="4">4th of month</option>
+                                                    <option value="5">5th of month</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Day of Week</label>
+                                                <select 
+                                                    value={newTaskNthDay} 
+                                                    onChange={e => setNewTaskNthDay(Number(e.target.value))}
+                                                    className="w-full px-2 py-1.5 border rounded-lg text-xs bg-white border-slate-300"
+                                                >
+                                                    <option value="0">Sunday</option>
+                                                    <option value="1">Monday</option>
+                                                    <option value="2">Tuesday</option>
+                                                    <option value="3">Wednesday</option>
+                                                    <option value="4">Thursday</option>
+                                                    <option value="5">Friday</option>
+                                                    <option value="6">Saturday</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* One-off Due Date */}
+                                    {newTaskFreqType === 'one-off' && (
                                         <div>
                                             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Due By Date</label>
                                             <input 
@@ -625,6 +727,7 @@
                                             />
                                         </div>
                                     )}
+
                                     <div className="flex justify-end gap-3 mt-6">
                                         <button type="button" onClick={() => setIsTaskModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button>
                                         <button type="submit" className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm">Save Task</button>
@@ -643,25 +746,46 @@
                                     <button onClick={() => setIsReportModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg font-bold">✕</button>
                                 </div>
                                 <div className="space-y-4 mb-6">
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                         <div>
                                             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Timeframe</label>
                                             <select value={reportTimeframe} onChange={e => setReportTimeframe(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300">
                                                 <option value="weekly">Weekly Summary</option>
                                                 <option value="monthly">Monthly Summary</option>
                                                 <option value="quarterly">Quarterly Review</option>
+                                                <option value="yearly">Yearly Overview</option>
                                             </select>
                                         </div>
                                         <div>
                                             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Category Scope</label>
-                                            <select value={reportCategoryScope} onChange={e => setReportCategoryScope(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300">
-                                                <option value="all">All Categories (Global)</option>
+                                            <select 
+                                                disabled={isMasterReport}
+                                                value={reportCategoryScope} 
+                                                onChange={e => setReportCategoryScope(e.target.value)} 
+                                                className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 disabled:opacity-50"
+                                            >
+                                                <option value="all">All Categories</option>
                                                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                             </select>
                                         </div>
+                                        <div className="flex flex-col justify-end">
+                                            <label className="flex items-center gap-2 cursor-pointer bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                                                <input 
+                                                    type="checkbox"
+                                                    checked={isMasterReport}
+                                                    onChange={e => setIsMasterReport(e.target.checked)}
+                                                    className="w-4 h-4 text-blue-600 rounded border-slate-300"
+                                                />
+                                                <span className="text-xs font-bold text-slate-700">Master Print All</span>
+                                            </label>
+                                        </div>
                                     </div>
+
                                     <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-3">
-                                        <h4 className="font-bold text-slate-800 text-sm">Executive Overview</h4>
+                                        <div className="flex justify-between items-center">
+                                            <h4 className="font-bold text-slate-800 text-sm">Executive Overview ({reportTimeframe.toUpperCase()})</h4>
+                                            {isMasterReport && <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full">Master Report Mode</span>}
+                                        </div>
                                         <div className="grid grid-cols-3 gap-2 text-center">
                                             <div className="bg-white p-2 rounded-lg border border-slate-200">
                                                 <span className="text-[10px] text-slate-400 uppercase font-semibold">Total</span>
@@ -680,6 +804,19 @@
                                             <strong>Analytical Feedback:</strong> {reportData.feedback}
                                         </div>
                                     </div>
+
+                                    <div>
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Category Breakdown</h4>
+                                        <div className="space-y-2">
+                                            {reportData.catBreakdown.map((cb, idx) => (
+                                                <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200 flex justify-between items-center text-sm">
+                                                    <span className="font-medium text-slate-700">{cb.name}</span>
+                                                    <span className="text-xs font-semibold px-2 py-1 bg-slate-100 rounded-md text-slate-600">{cb.done} / {cb.total} ({cb.rate}%)</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
                                     <div>
                                         <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">User Reflections & Notes</label>
                                         <textarea 
@@ -693,7 +830,7 @@
                                 </div>
                                 <div className="flex justify-end gap-3">
                                     <button onClick={() => setIsReportModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">Close</button>
-                                    <button onClick={() => window.print()} className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-700">Print / PDF</button>
+                                    <button onClick={() => window.print()} className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm">Print / Save as PDF</button>
                                 </div>
                             </div>
                         </div>

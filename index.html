@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-Category Goal & Task Tracker with Reports</title>
+    <title>Multi-Category Goal & Task Tracker with Cloud Sync</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React & ReactDOM CDN -->
@@ -11,12 +11,15 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <!-- Babel for JSX compilation -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Firebase App & Firestore Compat SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
         const initialCategories = [
             {
@@ -138,10 +141,10 @@
 
         function App() {
             const [categories, setCategories] = useState(() => {
-                const saved = localStorage.getItem('goal_tracker_data_v3');
+                const saved = localStorage.getItem('goal_tracker_data_v5');
                 return saved ? JSON.parse(saved) : initialCategories;
             });
-            const [view, setView] = useState('daily'); // daily, weekly, monthly
+            const [view, setView] = useState('daily');
             const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
             
             // Modal states
@@ -161,11 +164,90 @@
             const [reportCategoryScope, setReportCategoryScope] = useState('all');
             const [userReportNotes, setUserReportNotes] = useState('');
 
+            // Firebase Cloud Sync Configuration State
+            const [firebaseConfigInput, setFirebaseConfigInput] = useState(() => {
+                return localStorage.getItem('goal_tracker_fb_config') || '';
+            });
+            const [isCloudSyncActive, setIsCloudSyncActive] = useState(() => {
+                return localStorage.getItem('goal_tracker_cloud_active') === 'true';
+            });
+            const [syncStatus, setSyncStatus] = useState('Disconnected');
+
+            const dbRef = useRef(null);
+            const unsubscribeRef = useRef(null);
+
             useEffect(() => {
-                localStorage.setItem('goal_tracker_data_v3', JSON.stringify(categories));
+                localStorage.setItem('goal_tracker_data_v5', JSON.stringify(categories));
             }, [categories]);
 
-            // Date navigation
+            useEffect(() => {
+                if (!isCloudSyncActive || !firebaseConfigInput.trim()) {
+                    setSyncStatus('Local Mode');
+                    if (unsubscribeRef.current) {
+                        unsubscribeRef.current();
+                        unsubscribeRef.current = null;
+                    }
+                    return;
+                }
+
+                try {
+                    let cleanInput = firebaseConfigInput.trim();
+                    if (cleanInput.startsWith('{')) {
+                        cleanInput = `return (${cleanInput});`;
+                    }
+                    const config = new Function(cleanInput)();
+
+                    if (!firebase.apps.length) {
+                        firebase.initializeApp(config);
+                    } else {
+                        firebase.app();
+                    }
+
+                    dbRef.current = firebase.firestore();
+                    setSyncStatus('Connecting...');
+
+                    const docRef = dbRef.current.collection('goal_trackers').doc('main_user_data');
+
+                    unsubscribeRef.current = docRef.onSnapshot((doc) => {
+                        if (doc.exists) {
+                            const cloudData = doc.data();
+                            if (cloudData && cloudData.categories) {
+                                setCategories(cloudData.categories);
+                                setSyncStatus('🟢 Live Synced');
+                            }
+                        } else {
+                            docRef.set({ categories });
+                            setSyncStatus('🟢 Live Synced');
+                        }
+                    }, (error) => {
+                        console.error("Firebase sync error:", error);
+                        setSyncStatus('🔴 Sync Error');
+                    });
+
+                } catch (err) {
+                    console.error("Config parse error:", err);
+                    setSyncStatus('⚠️ Invalid Config');
+                }
+
+                return () => {
+                    if (unsubscribeRef.current) {
+                        unsubscribeRef.current();
+                    }
+                };
+            }, [isCloudSyncActive, firebaseConfigInput]);
+
+            const updateCategoriesAndCloud = (newCategoriesOrUpdater) => {
+                setCategories(prev => {
+                    const nextVal = typeof newCategoriesOrUpdater === 'function' ? newCategoriesOrUpdater(prev) : newCategoriesOrUpdater;
+                    
+                    if (isCloudSyncActive && dbRef.current) {
+                        const docRef = dbRef.current.collection('goal_trackers').doc('main_user_data');
+                        docRef.set({ categories: nextVal }).catch(err => console.error("Cloud write error:", err));
+                    }
+                    return nextVal;
+                });
+            };
+
             const handlePrevDate = () => {
                 const d = new Date(currentDate);
                 if (view === 'daily') d.setDate(d.getDate() - 1);
@@ -200,7 +282,6 @@
                 return currentDate;
             };
 
-            // Visibility filtering per view
             const isTaskVisibleForView = (task) => {
                 if (view === 'daily') {
                     if (task.frequency === 'daily') return true;
@@ -233,7 +314,7 @@
 
             const toggleTask = (catId, subId, taskId) => {
                 const key = getDateKey();
-                setCategories(prev => prev.map(cat => {
+                updateCategoriesAndCloud(prev => prev.map(cat => {
                     if (cat.id !== catId) return cat;
                     return {
                         ...cat,
@@ -267,7 +348,7 @@
                     completed: {}
                 };
 
-                setCategories(prev => prev.map(cat => {
+                updateCategoriesAndCloud(prev => prev.map(cat => {
                     if (cat.id !== selectedCategory) return cat;
                     return {
                         ...cat,
@@ -285,7 +366,6 @@
                 setIsTaskModalOpen(false);
             };
 
-            // Export backup JSON
             const exportBackup = () => {
                 const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(categories, null, 2));
                 const downloadAnchor = document.createElement('a');
@@ -296,7 +376,6 @@
                 downloadAnchor.remove();
             };
 
-            // Import backup JSON
             const importBackup = (e) => {
                 const fileReader = new FileReader();
                 if (e.target.files[0]) {
@@ -304,8 +383,8 @@
                     fileReader.onload = (event) => {
                         try {
                             const parsed = JSON.parse(event.target.result);
-                            setCategories(parsed);
-                            alert("Data successfully restored from backup!");
+                            updateCategoriesAndCloud(parsed);
+                            alert("Data successfully restored and synced!");
                             setIsSyncModalOpen(false);
                         } catch (err) {
                             alert("Invalid backup file format.");
@@ -314,7 +393,6 @@
                 }
             };
 
-            // Calculate visible progress
             const key = getDateKey();
             let totalTasks = 0;
             let completedTasks = 0;
@@ -332,7 +410,6 @@
 
             const percent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-            // Report generation calculations
             const generateReportData = () => {
                 let scopedCats = categories;
                 if (reportCategoryScope !== 'all') {
@@ -365,17 +442,7 @@
                 });
 
                 const overallRate = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-                // Smart Analytical Feedback
-                let feedback = "";
-                if (overallRate >= 80) {
-                    feedback = "🟢 Excellent execution. You are maintaining high consistency across your scheduled routines and commitments.";
-                } else if (overallRate >= 50) {
-                    feedback = "🟡 Moderate momentum. Some tasks are being met, but certain subcomponents or recurring goals require sharper daily focus.";
-                } else {
-                    feedback = "🔴 Low completion rate detected for this timeframe. Consider adjusting task loads or clearing schedule bottlenecks.";
-                }
-
+                let feedback = overallRate >= 80 ? "🟢 Excellent execution. High consistency maintained." : overallRate >= 50 ? "🟡 Moderate momentum. Some recurring routines need attention." : "🔴 Low completion rate. Review task loads and bottlenecks.";
                 return { total, completed, overallRate, catBreakdown, feedback };
             };
 
@@ -386,8 +453,13 @@
                     {/* Header */}
                     <header className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
                         <div>
-                            <h1 className="text-2xl font-bold text-slate-900">Multi-Category Goal & Task Tracker</h1>
-                            <p className="text-sm text-slate-500">Track daily habits, weekly targets, one-off milestones, and analytics.</p>
+                            <div className="flex items-center gap-3">
+                                <h1 className="text-2xl font-bold text-slate-900">Goal & Task Tracker</h1>
+                                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${syncStatus.includes('Synced') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                                    {syncStatus}
+                                </span>
+                            </div>
+                            <p className="text-sm text-slate-500">Live multi-device sync, daily habits, and performance reports.</p>
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
                             <div className="flex items-center bg-slate-100 rounded-xl p-1 border border-slate-200">
@@ -401,22 +473,13 @@
                                 onChange={e => setCurrentDate(e.target.value)}
                                 className="px-3 py-2 border rounded-xl text-sm font-medium bg-slate-50 border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
-                            <button 
-                                onClick={() => setIsReportModalOpen(true)}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-3 py-2 rounded-xl text-sm transition shadow-sm"
-                            >
+                            <button onClick={() => setIsReportModalOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-3 py-2 rounded-xl text-sm transition shadow-sm">
                                 📊 Reports
                             </button>
-                            <button 
-                                onClick={() => setIsSyncModalOpen(true)}
-                                className="bg-slate-800 hover:bg-slate-900 text-white font-medium px-3 py-2 rounded-xl text-sm transition shadow-sm"
-                            >
-                                💾 Backup
+                            <button onClick={() => setIsSyncModalOpen(true)} className="bg-slate-800 hover:bg-slate-900 text-white font-medium px-3 py-2 rounded-xl text-sm transition shadow-sm">
+                                ⚡ Cloud & Backup
                             </button>
-                            <button 
-                                onClick={() => setIsTaskModalOpen(true)}
-                                className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-xl text-sm transition shadow-sm"
-                            >
+                            <button onClick={() => setIsTaskModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-xl text-sm transition shadow-sm">
                                 + Add Task
                             </button>
                         </div>
@@ -426,24 +489,9 @@
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
                         <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
                             <div className="inline-flex rounded-xl bg-slate-100 p-1">
-                                <button 
-                                    onClick={() => setView('daily')}
-                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === 'daily' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                                >
-                                    Daily View
-                                </button>
-                                <button 
-                                    onClick={() => setView('weekly')}
-                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === 'weekly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                                >
-                                    Weekly View
-                                </button>
-                                <button 
-                                    onClick={() => setView('monthly')}
-                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === 'monthly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                                >
-                                    Monthly View
-                                </button>
+                                <button onClick={() => setView('daily')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === 'daily' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Daily View</button>
+                                <button onClick={() => setView('weekly')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === 'weekly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Weekly View</button>
+                                <button onClick={() => setView('monthly')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === 'monthly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Monthly View</button>
                             </div>
                             <div className="text-right">
                                 <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Completion Status ({view})</span>
@@ -523,7 +571,7 @@
                                                 const cat = categories.find(c => c.id === e.target.value);
                                                 if (cat && cat.subcomponents.length > 0) setSelectedSubcomp(cat.subcomponents[0].id);
                                             }}
-                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
                                         >
                                             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                         </select>
@@ -533,7 +581,7 @@
                                         <select 
                                             value={selectedSubcomp} 
                                             onChange={e => setSelectedSubcomp(e.target.value)}
-                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
                                         >
                                             {categories.find(c => c.id === selectedCategory)?.subcomponents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                                         </select>
@@ -545,16 +593,16 @@
                                             placeholder="e.g. Prepare presentation" 
                                             value={newTaskName}
                                             onChange={e => setNewTaskName(e.target.value)}
-                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
                                             required
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Frequency / Type</label>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Frequency</label>
                                         <select 
                                             value={newTaskFreq} 
                                             onChange={e => setNewTaskFreq(e.target.value)}
-                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
                                         >
                                             <option value="daily">Daily</option>
                                             <option value="weekly">Weekly</option>
@@ -572,7 +620,7 @@
                                                 type="date" 
                                                 value={newTaskDueDate}
                                                 onChange={e => setNewTaskDueDate(e.target.value)}
-                                                className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                                className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
                                                 required
                                             />
                                         </div>
@@ -597,7 +645,7 @@
                                 <div className="space-y-4 mb-6">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div>
-                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Report Timeframe</label>
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Timeframe</label>
                                             <select value={reportTimeframe} onChange={e => setReportTimeframe(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300">
                                                 <option value="weekly">Weekly Summary</option>
                                                 <option value="monthly">Monthly Summary</option>
@@ -612,13 +660,11 @@
                                             </select>
                                         </div>
                                     </div>
-
-                                    {/* Analytics Executive Summary */}
                                     <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-3">
                                         <h4 className="font-bold text-slate-800 text-sm">Executive Overview</h4>
                                         <div className="grid grid-cols-3 gap-2 text-center">
                                             <div className="bg-white p-2 rounded-lg border border-slate-200">
-                                                <span className="text-[10px] text-slate-400 uppercase font-semibold">Total Tasks</span>
+                                                <span className="text-[10px] text-slate-400 uppercase font-semibold">Total</span>
                                                 <div className="text-lg font-bold text-slate-800">{reportData.total}</div>
                                             </div>
                                             <div className="bg-white p-2 rounded-lg border border-slate-200">
@@ -626,65 +672,87 @@
                                                 <div className="text-lg font-bold text-emerald-600">{reportData.completed}</div>
                                             </div>
                                             <div className="bg-white p-2 rounded-lg border border-slate-200">
-                                                <span className="text-[10px] text-slate-400 uppercase font-semibold">Completion %</span>
+                                                <span className="text-[10px] text-slate-400 uppercase font-semibold">Rate %</span>
                                                 <div className="text-lg font-bold text-blue-600">{reportData.overallRate}%</div>
                                             </div>
                                         </div>
                                         <div className="text-xs font-medium text-slate-700 bg-white p-3 rounded-lg border border-slate-200">
-                                            <strong>Analytical AI Feedback:</strong> {reportData.feedback}
+                                            <strong>Analytical Feedback:</strong> {reportData.feedback}
                                         </div>
                                     </div>
-
-                                    {/* Category Breakdown */}
                                     <div>
-                                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Category Performance Breakdown</h4>
-                                        <div className="space-y-2">
-                                            {reportData.catBreakdown.map((cb, idx) => (
-                                                <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200 flex justify-between items-center text-sm">
-                                                    <span className="font-medium text-slate-700">{cb.name}</span>
-                                                    <span className="text-xs font-semibold px-2 py-1 bg-slate-100 rounded-md text-slate-600">{cb.done} / {cb.total} ({cb.rate}%)</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* User Reflections / Notes */}
-                                    <div>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">User Notes & Reflections</label>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">User Reflections & Notes</label>
                                         <textarea 
                                             rows="3" 
-                                            placeholder="Add personal observations, schedule notes, or focus items for next period..." 
+                                            placeholder="Add personal reflections or focus items..." 
                                             value={userReportNotes}
                                             onChange={e => setUserReportNotes(e.target.value)}
-                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
                                         ></textarea>
                                     </div>
                                 </div>
                                 <div className="flex justify-end gap-3">
                                     <button onClick={() => setIsReportModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">Close</button>
-                                    <button onClick={() => window.print()} className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm">Print / Save as PDF</button>
+                                    <button onClick={() => window.print()} className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-700">Print / PDF</button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Backup & Sync Modal */}
+                    {/* Cloud Sync & Backup Modal */}
                     {isSyncModalOpen && (
                         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200">
-                                <h3 className="text-lg font-bold text-slate-900 mb-4">💾 Backup & Restore Data</h3>
-                                <p className="text-xs text-slate-500 mb-4">Download a JSON backup of your goal state to move between your laptop and iPhone, or restore an existing backup file.</p>
-                                <div className="space-y-3">
-                                    <button onClick={exportBackup} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl text-sm transition shadow-sm">
-                                        📥 Export Backup File (JSON)
-                                    </button>
+                            <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
+                                <h3 className="text-lg font-bold text-slate-900 mb-2">⚡ Firebase Cloud Sync & Backup</h3>
+                                <p className="text-xs text-slate-500 mb-4">Paste your Firebase configuration object below (both standard JS object format and JSON are supported).</p>
+                                
+                                <div className="space-y-4 mb-6">
                                     <div>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Restore from Backup File</label>
-                                        <input type="file" accept=".json" onChange={importBackup} className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" />
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Firebase Config Object</label>
+                                        <textarea 
+                                            rows="5"
+                                            placeholder={`{ apiKey: "...", authDomain: "...", projectId: "...", ... }`}
+                                            value={firebaseConfigInput}
+                                            onChange={e => {
+                                                setFirebaseConfigInput(e.target.value);
+                                                localStorage.setItem('goal_tracker_fb_config', e.target.value);
+                                            }}
+                                            className="w-full px-3 py-2 border rounded-xl text-xs font-mono bg-slate-50 border-slate-300"
+                                        ></textarea>
+                                    </div>
+
+                                    <div className="flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                        <div>
+                                            <div className="text-sm font-bold text-slate-800">Enable Live Cloud Sync</div>
+                                            <div className="text-xs text-slate-500">Syncs automatically in real time across devices</div>
+                                        </div>
+                                        <input 
+                                            type="checkbox"
+                                            checked={isCloudSyncActive}
+                                            onChange={e => {
+                                                setIsCloudSyncActive(e.target.checked);
+                                                localStorage.setItem('goal_tracker_cloud_active', e.target.checked ? 'true' : 'false');
+                                            }}
+                                            className="w-5 h-5 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                                        />
+                                    </div>
+
+                                    <div className="border-t pt-4 space-y-2">
+                                        <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">Manual JSON Backup</div>
+                                        <div className="flex gap-2">
+                                            <button onClick={exportBackup} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-xs transition">
+                                                📥 Export JSON
+                                            </button>
+                                            <label className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-xs transition text-center cursor-pointer">
+                                                📤 Import JSON
+                                                <input type="file" accept=".json" onChange={importBackup} className="hidden" />
+                                            </label>
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="flex justify-end mt-6">
-                                    <button onClick={() => setIsSyncModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">Close</button>
+
+                                <div className="flex justify-end">
+                                    <button onClick={() => setIsSyncModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-700">Save & Close</button>
                                 </div>
                             </div>
                         </div>

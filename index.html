@@ -33,8 +33,8 @@
                         id: 'fam_time', 
                         name: 'Family Time', 
                         tasks: [
-                            { id: 't1', name: 'Teach kids something new', freqType: 'weekly', completed: {}, comments: '' },
-                            { id: 't2', name: 'Date night', freqType: 'monthly', completed: {}, comments: '' }
+                            { id: 't1', name: 'Teach kids something new', freqType: 'weekly', completed: {}, comments: '', archived: false },
+                            { id: 't2', name: 'Date night', freqType: 'monthly', completed: {}, comments: '', archived: false }
                         ] 
                     },
                     { id: 'admin', name: 'Admin', tasks: [] }
@@ -49,16 +49,16 @@
                         id: 'ministering', 
                         name: 'Ministering', 
                         tasks: [
-                            { id: 'c1', name: 'Minister to assigned families', freqType: 'monthly', completed: {}, comments: '' },
-                            { id: 'c2', name: 'Empower ministering district', freqType: 'monthly', completed: {}, comments: '' }
+                            { id: 'c1', name: 'Minister to assigned families', freqType: 'monthly', completed: {}, comments: '', archived: false },
+                            { id: 'c2', name: 'Empower ministering district', freqType: 'monthly', completed: {}, comments: '', archived: false }
                         ] 
                     },
                     { 
                         id: 'councils', 
                         name: 'Councils / Admin', 
                         tasks: [
-                            { id: 'c6', name: 'Confirm with teacher', freqType: 'weekly', completed: {}, comments: '' },
-                            { id: 'c7', name: 'Print Bulletin', freqType: 'weekly', completed: {}, comments: '' }
+                            { id: 'c6', name: 'Confirm with teacher', freqType: 'weekly', completed: {}, comments: '', archived: false },
+                            { id: 'c7', name: 'Print Bulletin', freqType: 'weekly', completed: {}, comments: '', archived: false }
                         ] 
                     }
                 ]
@@ -72,7 +72,7 @@
                         id: 'research', 
                         name: 'Research / Analysis', 
                         tasks: [
-                            { id: 'con2', name: '10 hours / week logged', freqType: 'weekly', completed: {}, comments: '' }
+                            { id: 'con2', name: '10 hours / week logged', freqType: 'weekly', completed: {}, comments: '', archived: false }
                         ] 
                     }
                 ]
@@ -86,8 +86,8 @@
                         id: 'physical', 
                         name: 'Physical', 
                         tasks: [
-                            { id: 's2', name: 'Mobility / core training (15 min)', freqType: 'daily', completed: {}, comments: '' },
-                            { id: 's3', name: '10 miles running', freqType: 'weekly', completed: {}, comments: '' }
+                            { id: 's2', name: 'Mobility / core training (15 min)', freqType: 'daily', completed: {}, comments: '', archived: false },
+                            { id: 's3', name: '10 miles running', freqType: 'weekly', completed: {}, comments: '', archived: false }
                         ] 
                     }
                 ]
@@ -129,6 +129,7 @@
 
             // Filter views: 'all' (Everything), 'daily', 'weekly', 'monthly'
             const [view, setView] = useState('all');
+            const [showArchived, setShowArchived] = useState(false);
             const [currentDate, setCurrentDate] = useState(() => formatLocalDate(new Date()));
             
             // Modal states
@@ -136,11 +137,16 @@
             const [isReportModalOpen, setIsReportModalOpen] = useState(false);
             const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
 
-            // Task Detail / Edit Modal state (Due Date & Comments)
+            // Task Detail / Edit Modal state (Due Date, Comments, Recurrence, & Archive)
             const [editingTaskCtx, setEditingTaskCtx] = useState(null); // { catId, subId, task }
             const [editTaskName, setEditTaskName] = useState('');
+            const [editTaskFreqType, setEditTaskFreqType] = useState('daily');
+            const [editTaskDays, setEditTaskDays] = useState([1, 3, 5]);
+            const [editTaskMultiWeeks, setEditTaskMultiWeeks] = useState([2, 4]);
+            const [editTaskMultiDays, setEditTaskMultiDays] = useState([2]);
             const [editTaskDueDate, setEditTaskDueDate] = useState('');
             const [editTaskComments, setEditTaskComments] = useState('');
+            const [editTaskArchived, setEditTaskArchived] = useState(false);
 
             // Custom Confirmation & Notification Banner state (never uses alert/confirm)
             const [confirmDialog, setConfirmDialog] = useState(null);
@@ -316,6 +322,7 @@
 
             // Check if task is overdue relative to dateStr
             const isTaskOverdue = (task, dateStr = currentDate) => {
+                if (task.archived) return false;
                 if (!task.dueDate) return false;
                 if (isTaskCompletedOnDate(task, dateStr)) return false;
                 return task.dueDate < dateStr;
@@ -365,12 +372,15 @@
                 return true;
             };
 
-            // Filter tasks based on active view tab:
-            // 'all' -> Everything (all tasks regardless of frequency)
-            // 'daily' -> Daily cadence tasks scheduled on currentDate (plus any overdue tasks)
-            // 'weekly' -> Weekly cadence tasks
-            // 'monthly' -> Monthly cadence tasks
+            // Filter tasks based on active view tab & archive toggle:
             const isTaskVisibleForView = (task, activeView = view) => {
+                // If viewing archived tasks specifically, only show archived tasks
+                if (showArchived) {
+                    return !!task.archived;
+                }
+                // Hide archived tasks from normal operational views
+                if (task.archived) return false;
+
                 const overdue = isTaskOverdue(task, currentDate);
                 if (activeView === 'all') return true;
 
@@ -415,7 +425,7 @@
             const requestDeleteTask = (catId, subId, task) => {
                 setConfirmDialog({
                     title: 'Delete Task',
-                    message: `Are you sure you want to delete "${task.name}"?`,
+                    message: `Are you sure you want to permanently delete "${task.name}"? (Tip: To discontinue a task without losing history, use Archive instead).`,
                     onConfirm: () => {
                         updateCategoriesAndCloud(prev => prev.map(cat => {
                             if (cat.id !== catId) return cat;
@@ -431,7 +441,7 @@
                             };
                         }));
                         setConfirmDialog(null);
-                        showToast('Task deleted.');
+                        showToast('Task permanently deleted.');
                     }
                 });
             };
@@ -439,14 +449,27 @@
             const openTaskDetailModal = (catId, subId, task) => {
                 setEditingTaskCtx({ catId, subId, task });
                 setEditTaskName(task.name || '');
+                setEditTaskFreqType(task.freqType || task.frequency || 'daily');
+                setEditTaskDays(task.customDays || [1, 3, 5]);
+                setEditTaskMultiWeeks(task.nthWeeks || (task.nthWeek ? [task.nthWeek] : [2, 4]));
+                setEditTaskMultiDays(task.nthDays || (task.nthDay !== undefined ? [task.nthDay] : [2]));
                 setEditTaskDueDate(task.dueDate || '');
                 setEditTaskComments(task.comments || '');
+                setEditTaskArchived(!!task.archived);
             };
 
             const handleSaveTaskDetails = (e) => {
                 e.preventDefault();
                 if (!editingTaskCtx || !editTaskName.trim()) return;
                 const { catId, subId, task } = editingTaskCtx;
+
+                if (editTaskFreqType === 'nth-weekday' && (editTaskMultiWeeks.length === 0 || editTaskMultiDays.length === 0)) {
+                    showToast('Please select at least one week and one day of the month.');
+                    return;
+                }
+
+                const sortedWeeks = [...editTaskMultiWeeks].sort((a, b) => a - b);
+                const sortedDays = [...editTaskMultiDays].sort((a, b) => a - b);
 
                 updateCategoriesAndCloud(prev => prev.map(cat => {
                     if (cat.id !== catId) return cat;
@@ -461,8 +484,13 @@
                                     return {
                                         ...t,
                                         name: editTaskName.trim(),
+                                        freqType: editTaskFreqType,
+                                        customDays: [...editTaskDays].sort((a, b) => a - b),
+                                        nthWeeks: sortedWeeks,
+                                        nthDays: sortedDays,
                                         dueDate: editTaskDueDate || null,
-                                        comments: editTaskComments
+                                        comments: editTaskComments,
+                                        archived: editTaskArchived
                                     };
                                 })
                             };
@@ -471,7 +499,7 @@
                 }));
 
                 setEditingTaskCtx(null);
-                showToast('Task updated.');
+                showToast(editTaskArchived ? 'Task archived and hidden from active views.' : 'Task details updated.');
             };
 
             const handleAddTask = (e) => {
@@ -495,6 +523,7 @@
                     nthDays: sortedDays,
                     dueDate: newTaskFreqType === 'one-off' ? newTaskDueDate : null,
                     comments: newTaskComments.trim(),
+                    archived: false,
                     completed: {}
                 };
 
@@ -571,7 +600,7 @@
                 return type;
             };
 
-            // Main progress bar metrics dynamically reflect active view filter
+            // Main progress bar metrics dynamically reflect active view filter & archive state
             let totalTasks = 0;
             let completedTasks = 0;
 
@@ -588,7 +617,7 @@
 
             const percent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-            // Report calculation respects active view filter (unless Master Print All is checked)
+            // Report calculation respects active view filter & archive state (unless Master Print All is checked)
             const generateReportData = () => {
                 let scopedCats = categories;
                 if (!isMasterReport && reportCategoryScope !== 'all') {
@@ -649,7 +678,6 @@
 
             const reportData = generateReportData();
 
-            // Helper to map legacy light-mode category badge classes to dark-mode equivalents if loaded from localStorage
             const getDarkCategoryBadge = (cat) => {
                 const map = {
                     family: 'bg-emerald-950/70 text-emerald-300 border-emerald-800/80',
@@ -712,17 +740,25 @@
                         </div>
                     </header>
 
-                    {/* View Switcher & Progress Bar */}
+                    {/* View Switcher, Archive Toggle & Progress Bar */}
                     <div className="bg-slate-900 rounded-2xl shadow-lg border border-slate-800 p-6 mb-6">
                         <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
-                            <div className="inline-flex flex-wrap rounded-xl bg-slate-800 p-1 gap-1 border border-slate-700/60">
-                                <button onClick={() => setView('all')} className={`px-3.5 py-2 rounded-lg text-sm font-medium transition ${view === 'all' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>All Tasks</button>
-                                <button onClick={() => setView('daily')} className={`px-3.5 py-2 rounded-lg text-sm font-medium transition ${view === 'daily' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>Daily Tasks</button>
-                                <button onClick={() => setView('weekly')} className={`px-3.5 py-2 rounded-lg text-sm font-medium transition ${view === 'weekly' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>Weekly Tasks</button>
-                                <button onClick={() => setView('monthly')} className={`px-3.5 py-2 rounded-lg text-sm font-medium transition ${view === 'monthly' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>Monthly Tasks</button>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <div className="inline-flex flex-wrap rounded-xl bg-slate-800 p-1 gap-1 border border-slate-700/60">
+                                    <button onClick={() => { setView('all'); setShowArchived(false); }} className={`px-3.5 py-2 rounded-lg text-sm font-medium transition ${view === 'all' && !showArchived ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>All Tasks</button>
+                                    <button onClick={() => { setView('daily'); setShowArchived(false); }} className={`px-3.5 py-2 rounded-lg text-sm font-medium transition ${view === 'daily' && !showArchived ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>Daily Tasks</button>
+                                    <button onClick={() => { setView('weekly'); setShowArchived(false); }} className={`px-3.5 py-2 rounded-lg text-sm font-medium transition ${view === 'weekly' && !showArchived ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>Weekly Tasks</button>
+                                    <button onClick={() => { setView('monthly'); setShowArchived(false); }} className={`px-3.5 py-2 rounded-lg text-sm font-medium transition ${view === 'monthly' && !showArchived ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>Monthly Tasks</button>
+                                </div>
+                                <button 
+                                    onClick={() => setShowArchived(!showArchived)}
+                                    className={`px-3.5 py-2 rounded-xl text-sm font-medium border transition ${showArchived ? 'bg-amber-950 text-amber-300 border-amber-800 shadow-sm' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'}`}
+                                >
+                                    📦 {showArchived ? 'Viewing Archived' : 'Archived Tasks'}
+                                </button>
                             </div>
                             <div className="text-right">
-                                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Completion Status ({viewLabels[view]})</span>
+                                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Completion Status ({showArchived ? 'Archived' : viewLabels[view]})</span>
                                 <div className="text-lg font-bold text-slate-100">{completedTasks} / {totalTasks} Tasks ({percent}%)</div>
                             </div>
                         </div>
@@ -730,10 +766,11 @@
                             <div className="bg-blue-500 h-3 rounded-full transition-all duration-500" style={{ width: `${percent}%` }}></div>
                         </div>
                         <div className="mt-2.5 flex flex-wrap justify-between items-center text-[11px] text-slate-500">
-                            <span>💡 Click any task title to edit its due date or add comments/notes.</span>
+                            <span>💡 Click any task to edit its schedule, update days, or archive it to hide it without losing history.</span>
                             <span>
-                                {view === 'weekly' && `Week window: Mon ${getMondayOfWeekStr(currentDate)} – Sun`}
-                                {view === 'monthly' && `Month window: ${currentDate.slice(0, 7)} (resets on the 1st)`}
+                                {!showArchived && view === 'weekly' && `Week window: Mon ${getMondayOfWeekStr(currentDate)} – Sun`}
+                                {!showArchived && view === 'monthly' && `Month window: ${currentDate.slice(0, 7)} (resets on the 1st)`}
+                                {showArchived && 'Archived tasks are hidden from daily/weekly operational views but retain completion logs.'}
                             </span>
                         </div>
                     </div>
@@ -763,7 +800,7 @@
                                                                 return (
                                                                     <li 
                                                                         key={task.id} 
-                                                                        className={`flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 transition ${overdue ? 'bg-red-950/50 border border-red-800/80' : 'hover:bg-slate-800/70 border border-transparent'}`}
+                                                                        className={`flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 transition ${overdue ? 'bg-red-950/50 border border-red-800/80' : task.archived ? 'bg-slate-800/40 border border-slate-800' : 'hover:bg-slate-800/70 border border-transparent'}`}
                                                                     >
                                                                         <div className="flex items-center gap-3 min-w-0 flex-1">
                                                                             <input 
@@ -775,19 +812,24 @@
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() => openTaskDetailModal(cat.id, sub.id, task)}
-                                                                                title="Click to edit due date or add notes"
+                                                                                title="Click to edit task or change schedule"
                                                                                 className="text-left min-w-0 flex-1 group/title"
                                                                             >
                                                                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                                                                    <span className={`text-sm truncate group-hover/title:underline ${isChecked ? 'line-through text-slate-500' : overdue ? 'text-red-300 font-semibold' : 'text-slate-200 font-medium'}`}>
+                                                                                    <span className={`text-sm truncate group-hover/title:underline ${isChecked ? 'line-through text-slate-500' : overdue ? 'text-red-300 font-semibold' : task.archived ? 'text-slate-400 italic' : 'text-slate-200 font-medium'}`}>
                                                                                         {task.name}
                                                                                     </span>
-                                                                                    {overdue && (
+                                                                                    {task.archived && (
+                                                                                        <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-950 text-amber-300 border border-amber-800 px-1.5 py-0.5 rounded">
+                                                                                            Archived
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {overdue && !task.archived && (
                                                                                         <span className="text-[10px] font-bold uppercase tracking-wider bg-red-600 text-white px-1.5 py-0.5 rounded">
                                                                                             Overdue ({task.dueDate})
                                                                                         </span>
                                                                                     )}
-                                                                                    {!overdue && task.dueDate && (task.freqType || task.frequency) !== 'one-off' && (
+                                                                                    {!overdue && task.dueDate && (task.freqType || task.frequency) !== 'one-off' && !task.archived && (
                                                                                         <span className="text-[10px] font-medium bg-amber-950/80 text-amber-300 border border-amber-800 px-1.5 py-0.5 rounded">
                                                                                             Due {task.dueDate}
                                                                                         </span>
@@ -806,14 +848,14 @@
                                                                             </span>
                                                                             <button 
                                                                                 onClick={() => openTaskDetailModal(cat.id, sub.id, task)}
-                                                                                title="Edit due date & comments"
+                                                                                title="Edit schedule & archive"
                                                                                 className="text-slate-500 hover:text-blue-400 transition text-xs px-1"
                                                                             >
                                                                                 ✎
                                                                             </button>
                                                                             <button 
                                                                                 onClick={() => requestDeleteTask(cat.id, sub.id, task)}
-                                                                                title="Delete task"
+                                                                                title="Permanently delete task"
                                                                                 className="text-slate-600 hover:text-red-400 transition text-xs px-1 font-bold"
                                                                             >
                                                                                 ✕
@@ -827,7 +869,9 @@
                                                 );
                                             })}
                                             {!hasVisible && (
-                                                <p className="text-xs text-slate-500 italic py-2">No tasks scheduled for {viewLabels[view].toLowerCase()}.</p>
+                                                <p className="text-xs text-slate-500 italic py-2">
+                                                    {showArchived ? 'No archived tasks found.' : `No tasks scheduled for ${viewLabels[view].toLowerCase()}.`}
+                                                </p>
                                             )}
                                         </div>
                                     </div>
@@ -836,12 +880,12 @@
                         })}
                     </div>
 
-                    {/* Task Details / Due Date & Comment Modal */}
+                    {/* Task Details / Edit Schedule & Archive Modal */}
                     {editingTaskCtx && (
                         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                            <div className="bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-800">
+                            <div className="bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-800 max-h-[90vh] overflow-y-auto">
                                 <div className="flex justify-between items-center mb-4">
-                                    <h3 className="text-lg font-bold text-white">Task Details & Notes</h3>
+                                    <h3 className="text-lg font-bold text-white">Edit Task & Schedule</h3>
                                     <button onClick={() => setEditingTaskCtx(null)} className="text-slate-400 hover:text-slate-200 font-bold">✕</button>
                                 </div>
                                 <form onSubmit={handleSaveTaskDetails} className="space-y-4">
@@ -856,37 +900,151 @@
                                         />
                                     </div>
                                     <div>
-                                        <div className="flex justify-between items-center mb-1">
-                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">Due Date (Optional)</label>
-                                            {editTaskDueDate && (
-                                                <button 
-                                                    type="button" 
-                                                    onClick={() => setEditTaskDueDate('')}
-                                                    className="text-[11px] text-blue-400 hover:underline font-medium"
-                                                >
-                                                    Clear Date
-                                                </button>
-                                            )}
-                                        </div>
-                                        <input 
-                                            type="date" 
-                                            value={editTaskDueDate}
-                                            onChange={e => setEditTaskDueDate(e.target.value)}
-                                            style={{ colorScheme: 'dark' }}
-                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                        />
-                                        <p className="text-[11px] text-slate-500 mt-1">Incomplete tasks past their due date are flagged as Overdue.</p>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Recurrence Pattern</label>
+                                        <select 
+                                            value={editTaskFreqType} 
+                                            onChange={e => setEditTaskFreqType(e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 border-slate-700"
+                                        >
+                                            <option value="daily">Daily</option>
+                                            <option value="weekdays">Weekdays (Mon - Fri)</option>
+                                            <option value="weekends">Weekends (Sat & Sun)</option>
+                                            <option value="weekly">Weekly (Resets Monday Morning)</option>
+                                            <option value="custom-weekly">Weekly on Specific Days</option>
+                                            <option value="nth-weekday">Specific Weeks & Days of Month (e.g. 2nd & 4th Wed)</option>
+                                            <option value="monthly">Monthly (Resets 1st of Month)</option>
+                                            <option value="quarterly">Quarterly</option>
+                                            <option value="yearly">Yearly</option>
+                                            <option value="one-off">One-Off Task (Due Date)</option>
+                                        </select>
                                     </div>
+
+                                    {/* Custom Weekly Day Selector for Edit */}
+                                    {editTaskFreqType === 'custom-weekly' && (
+                                        <div>
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Select Active Days</label>
+                                            <div className="flex gap-1 justify-between">
+                                                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayName, idx) => {
+                                                    const isSelected = editTaskDays.includes(idx);
+                                                    return (
+                                                        <button
+                                                            type="button"
+                                                            key={idx}
+                                                            onClick={() => {
+                                                                if (isSelected) {
+                                                                    setEditTaskDays(editTaskDays.filter(d => d !== idx));
+                                                                } else {
+                                                                    setEditTaskDays([...editTaskDays, idx]);
+                                                                }
+                                                            }}
+                                                            className={`flex-1 py-1.5 text-xs font-bold rounded-lg border transition ${isSelected ? 'bg-blue-600 text-white border-blue-500 shadow-sm' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'}`}
+                                                        >
+                                                            {dayName[0]}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Multi-Week & Multi-Day Toggle Selector for Edit (e.g. changing Tuesday to Wednesday) */}
+                                    {editTaskFreqType === 'nth-weekday' && (
+                                        <div className="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700 space-y-3">
+                                            <div>
+                                                <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Toggle Weeks of Month</label>
+                                                <div className="flex gap-1.5">
+                                                    {[
+                                                        { val: 1, label: '1st' },
+                                                        { val: 2, label: '2nd' },
+                                                        { val: 3, label: '3rd' },
+                                                        { val: 4, label: '4th' },
+                                                        { val: 5, label: '5th' }
+                                                    ].map(wk => {
+                                                        const active = editTaskMultiWeeks.includes(wk.val);
+                                                        return (
+                                                            <button
+                                                                type="button"
+                                                                key={wk.val}
+                                                                onClick={() => {
+                                                                    if (active) {
+                                                                        setEditTaskMultiWeeks(editTaskMultiWeeks.filter(w => w !== wk.val));
+                                                                    } else {
+                                                                        setEditTaskMultiWeeks([...editTaskMultiWeeks, wk.val]);
+                                                                    }
+                                                                }}
+                                                                className={`flex-1 py-1.5 text-xs font-bold rounded-lg border transition ${active ? 'bg-blue-600 text-white border-blue-500 shadow-sm' : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-700'}`}
+                                                            >
+                                                                {wk.label}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Toggle Days of Week (e.g. Switch Tue to Wed)</label>
+                                                <div className="flex gap-1">
+                                                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayName, idx) => {
+                                                        const active = editTaskMultiDays.includes(idx);
+                                                        return (
+                                                            <button
+                                                                type="button"
+                                                                key={idx}
+                                                                onClick={() => {
+                                                                    if (active) {
+                                                                        setEditTaskMultiDays(editTaskMultiDays.filter(d => d !== idx));
+                                                                    } else {
+                                                                        setEditTaskMultiDays([...editTaskMultiDays, idx]);
+                                                                    }
+                                                                }}
+                                                                className={`flex-1 py-1.5 text-xs font-bold rounded-lg border transition ${active ? 'bg-blue-600 text-white border-blue-500 shadow-sm' : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-700'}`}
+                                                            >
+                                                                {dayName}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {editTaskFreqType === 'one-off' && (
+                                        <div>
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Due By Date</label>
+                                            <input 
+                                                type="date" 
+                                                value={editTaskDueDate}
+                                                onChange={e => setEditTaskDueDate(e.target.value)}
+                                                style={{ colorScheme: 'dark' }}
+                                                className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 border-slate-700"
+                                            />
+                                        </div>
+                                    )}
+
                                     <div>
                                         <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Comments / Notes</label>
                                         <textarea 
-                                            rows="4"
-                                            placeholder="Add context, links, or progress notes for this task..."
+                                            rows="3"
+                                            placeholder="Add context or notes..."
                                             value={editTaskComments}
                                             onChange={e => setEditTaskComments(e.target.value)}
-                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 placeholder-slate-500 border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 placeholder-slate-500 border-slate-700"
                                         ></textarea>
                                     </div>
+
+                                    {/* Archive Toggle Switch */}
+                                    <div className="flex items-center justify-between bg-slate-800/80 p-3.5 rounded-xl border border-slate-700">
+                                        <div>
+                                            <div className="text-xs font-bold text-slate-100 uppercase tracking-wider">Archive Task</div>
+                                            <div className="text-[11px] text-slate-400">Discontinue task & hide from daily lists while keeping past completion history.</div>
+                                        </div>
+                                        <input 
+                                            type="checkbox"
+                                            checked={editTaskArchived}
+                                            onChange={e => setEditTaskArchived(e.target.checked)}
+                                            className="w-5 h-5 text-amber-500 bg-slate-900 rounded border-slate-600 focus:ring-amber-500 cursor-pointer"
+                                        />
+                                    </div>
+
                                     <div className="flex justify-end gap-3 pt-2">
                                         <button type="button" onClick={() => setEditingTaskCtx(null)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-300 hover:bg-slate-800">Cancel</button>
                                         <button type="submit" className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 shadow-sm">Save Changes</button>
@@ -1059,7 +1217,6 @@
                                         </div>
                                     )}
 
-                                    {/* One-off Due Date */}
                                     {newTaskFreqType === 'one-off' && (
                                         <div>
                                             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Due By Date</label>

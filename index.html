@@ -15,25 +15,26 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 </head>
-<body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen">
+<body class="bg-slate-950 text-slate-100 font-sans antialiased min-h-screen selection:bg-blue-500/30">
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        // Default initial category and task structure with dark-mode styling
         const initialCategories = [
             {
                 id: 'family',
                 name: '1. Family / Home',
-                color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                color: 'bg-emerald-950/70 text-emerald-300 border-emerald-800/80',
                 subcomponents: [
                     { id: 'maint', name: 'Maintenance', tasks: [] },
                     { 
                         id: 'fam_time', 
                         name: 'Family Time', 
                         tasks: [
-                            { id: 't1', name: 'Teach kids something new', freqType: 'weekly', completed: {} },
-                            { id: 't2', name: 'Date night', freqType: 'monthly', completed: {} }
+                            { id: 't1', name: 'Teach kids something new', freqType: 'weekly', completed: {}, comments: '' },
+                            { id: 't2', name: 'Date night', freqType: 'monthly', completed: {}, comments: '' }
                         ] 
                     },
                     { id: 'admin', name: 'Admin', tasks: [] }
@@ -42,22 +43,22 @@
             {
                 id: 'church',
                 name: '2. Church Calling',
-                color: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+                color: 'bg-indigo-950/70 text-indigo-300 border-indigo-800/80',
                 subcomponents: [
                     { 
                         id: 'ministering', 
                         name: 'Ministering', 
                         tasks: [
-                            { id: 'c1', name: 'Minister to assigned families', freqType: 'monthly', completed: {} },
-                            { id: 'c2', name: 'Empower ministering district', freqType: 'monthly', completed: {} }
+                            { id: 'c1', name: 'Minister to assigned families', freqType: 'monthly', completed: {}, comments: '' },
+                            { id: 'c2', name: 'Empower ministering district', freqType: 'monthly', completed: {}, comments: '' }
                         ] 
                     },
                     { 
                         id: 'councils', 
                         name: 'Councils / Admin', 
                         tasks: [
-                            { id: 'c6', name: 'Confirm with teacher', freqType: 'weekly', completed: {} },
-                            { id: 'c7', name: 'Print Bulletin', freqType: 'weekly', completed: {} }
+                            { id: 'c6', name: 'Confirm with teacher', freqType: 'weekly', completed: {}, comments: '' },
+                            { id: 'c7', name: 'Print Bulletin', freqType: 'weekly', completed: {}, comments: '' }
                         ] 
                     }
                 ]
@@ -65,13 +66,13 @@
             {
                 id: 'consulting',
                 name: '3. Consulting',
-                color: 'bg-amber-50 text-amber-700 border-amber-200',
+                color: 'bg-amber-950/70 text-amber-300 border-amber-800/80',
                 subcomponents: [
                     { 
                         id: 'research', 
                         name: 'Research / Analysis', 
                         tasks: [
-                            { id: 'con2', name: '10 hours / week logged', freqType: 'weekly', completed: {} }
+                            { id: 'con2', name: '10 hours / week logged', freqType: 'weekly', completed: {}, comments: '' }
                         ] 
                     }
                 ]
@@ -79,32 +80,71 @@
             {
                 id: 'self_imp',
                 name: '4. Self-Improvement',
-                color: 'bg-sky-50 text-sky-700 border-sky-200',
+                color: 'bg-sky-950/70 text-sky-300 border-sky-800/80',
                 subcomponents: [
                     { 
                         id: 'physical', 
                         name: 'Physical', 
                         tasks: [
-                            { id: 's2', name: 'Mobility / core training (15 min)', freqType: 'daily', completed: {} },
-                            { id: 's3', name: '10 miles running', freqType: 'weekly', completed: {} }
+                            { id: 's2', name: 'Mobility / core training (15 min)', freqType: 'daily', completed: {}, comments: '' },
+                            { id: 's3', name: '10 miles running', freqType: 'weekly', completed: {}, comments: '' }
                         ] 
                     }
                 ]
             }
         ];
 
+        // Parse YYYY-MM-DD safely in local timezone without UTC drift
+        function parseLocalDate(dateStr) {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            return new Date(y, m - 1, d);
+        }
+
+        // Format Date object back to YYYY-MM-DD
+        function formatLocalDate(dateObj) {
+            const y = dateObj.getFullYear();
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        // Get Monday of the week containing dateStr (Monday-to-Sunday renewal window)
+        function getMondayOfWeekStr(dateStr) {
+            const d = parseLocalDate(dateStr);
+            const day = d.getDay(); // 0 = Sun, 1 = Mon ... 6 = Sat
+            const diffToMonday = day === 0 ? -6 : 1 - day;
+            d.setDate(d.getDate() + diffToMonday);
+            return formatLocalDate(d);
+        }
+
         function App() {
             const [categories, setCategories] = useState(() => {
-                const saved = localStorage.getItem('goal_tracker_data_v8');
-                return saved ? JSON.parse(saved) : initialCategories;
+                try {
+                    const saved = localStorage.getItem('goal_tracker_data_v8');
+                    return saved ? JSON.parse(saved) : initialCategories;
+                } catch (e) {
+                    return initialCategories;
+                }
             });
-            const [view, setView] = useState('daily');
-            const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
+
+            // Filter views: 'all' (Everything), 'daily', 'weekly', 'monthly'
+            const [view, setView] = useState('all');
+            const [currentDate, setCurrentDate] = useState(() => formatLocalDate(new Date()));
             
             // Modal states
             const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
             const [isReportModalOpen, setIsReportModalOpen] = useState(false);
             const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+
+            // Task Detail / Edit Modal state (Due Date & Comments)
+            const [editingTaskCtx, setEditingTaskCtx] = useState(null); // { catId, subId, task }
+            const [editTaskName, setEditTaskName] = useState('');
+            const [editTaskDueDate, setEditTaskDueDate] = useState('');
+            const [editTaskComments, setEditTaskComments] = useState('');
+
+            // Custom Confirmation & Notification Banner state (never uses alert/confirm)
+            const [confirmDialog, setConfirmDialog] = useState(null);
+            const [toastMessage, setToastMessage] = useState(null);
 
             // Add Task granular state
             const [selectedCategory, setSelectedCategory] = useState(initialCategories[0].id);
@@ -112,9 +152,10 @@
             const [newTaskName, setNewTaskName] = useState('');
             const [newTaskFreqType, setNewTaskFreqType] = useState('daily');
             const [newTaskDays, setNewTaskDays] = useState([1, 3, 5]); // Mon, Wed, Fri default
-            const [newTaskNthWeek, setNewTaskNthWeek] = useState(2); // e.g. 2nd
-            const [newTaskNthDay, setNewTaskNthDay] = useState(2); // e.g. Tuesday
-            const [newTaskDueDate, setNewTaskDueDate] = useState(new Date().toISOString().split('T')[0]);
+            const [newTaskMultiWeeks, setNewTaskMultiWeeks] = useState([2, 4]); // e.g., 2nd & 4th
+            const [newTaskMultiDays, setNewTaskMultiDays] = useState([2]); // e.g., Tuesday
+            const [newTaskDueDate, setNewTaskDueDate] = useState(() => formatLocalDate(new Date()));
+            const [newTaskComments, setNewTaskComments] = useState('');
 
             // Report fields
             const [reportTimeframe, setReportTimeframe] = useState('weekly');
@@ -129,10 +170,15 @@
             const [isCloudSyncActive, setIsCloudSyncActive] = useState(() => {
                 return localStorage.getItem('goal_tracker_cloud_active') === 'true';
             });
-            const [syncStatus, setSyncStatus] = useState('Disconnected');
+            const [syncStatus, setSyncStatus] = useState('Local Mode');
 
             const dbRef = useRef(null);
             const unsubscribeRef = useRef(null);
+
+            const showToast = (msg) => {
+                setToastMessage(msg);
+                setTimeout(() => setToastMessage(null), 3500);
+            };
 
             useEffect(() => {
                 localStorage.setItem('goal_tracker_data_v8', JSON.stringify(categories));
@@ -205,102 +251,144 @@
             };
 
             const handlePrevDate = () => {
-                const d = new Date(currentDate);
-                if (view === 'daily') d.setDate(d.getDate() - 1);
-                else if (view === 'weekly') d.setDate(d.getDate() - 7);
+                const d = parseLocalDate(currentDate);
+                if (view === 'weekly') d.setDate(d.getDate() - 7);
                 else if (view === 'monthly') d.setMonth(d.getMonth() - 1);
-                setCurrentDate(d.toISOString().split('T')[0]);
+                else d.setDate(d.getDate() - 1);
+                setCurrentDate(formatLocalDate(d));
             };
 
             const handleNextDate = () => {
-                const d = new Date(currentDate);
-                if (view === 'daily') d.setDate(d.getDate() + 1);
-                else if (view === 'weekly') d.setDate(d.getDate() + 7);
+                const d = parseLocalDate(currentDate);
+                if (view === 'weekly') d.setDate(d.getDate() + 7);
                 else if (view === 'monthly') d.setMonth(d.getMonth() + 1);
-                setCurrentDate(d.toISOString().split('T')[0]);
+                else d.setDate(d.getDate() + 1);
+                setCurrentDate(formatLocalDate(d));
             };
 
             const handleToday = () => {
-                setCurrentDate(new Date().toISOString().split('T')[0]);
+                setCurrentDate(formatLocalDate(new Date()));
             };
 
-            const getDateKey = () => {
-                if (view === 'daily') return currentDate;
-                if (view === 'weekly') {
-                    const d = new Date(currentDate);
-                    const weekNum = Math.ceil(d.getDate() / 7);
-                    return `${d.getFullYear()}-W${d.getMonth() + 1}-${weekNum}`;
-                }
-                if (view === 'monthly') {
-                    const d = new Date(currentDate);
-                    return `${d.getFullYear()}-${d.getMonth() + 1}`;
-                }
-                return currentDate;
+            // Determine task's cadence bucket: 'daily' | 'weekly' | 'monthly' | 'other'
+            const getTaskCadenceBucket = (task) => {
+                const type = task.freqType || task.frequency;
+                if (type === 'daily' || type === 'weekdays' || type === 'weekends') return 'daily';
+                if (type === 'weekly' || type === 'custom-weekly') return 'weekly';
+                if (type === 'monthly' || type === 'nth-weekday') return 'monthly';
+                return 'other';
             };
 
-            const matchesNthWeekday = (dateStr, targetNth, targetDay) => {
-                const d = new Date(dateStr);
-                if (d.getDay() !== Number(targetDay)) return false;
+            // Completion key per task type:
+            // - Weekly tasks renew Monday morning (keyed by Monday of that week: WK-YYYY-MM-DD)
+            // - Monthly tasks renew 1st of month (keyed by calendar month: MO-YYYY-MM)
+            // - One-off tasks persist once completed ('DONE')
+            // - Daily tasks key by exact date (YYYY-MM-DD)
+            const getTaskCompletionKey = (task, dateStr = currentDate) => {
+                const type = task.freqType || task.frequency;
+                if (type === 'weekly' || type === 'custom-weekly') {
+                    return `WK-${getMondayOfWeekStr(dateStr)}`;
+                }
+                if (type === 'monthly' || type === 'nth-weekday') {
+                    const d = parseLocalDate(dateStr);
+                    return `MO-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                }
+                if (type === 'quarterly') {
+                    const d = parseLocalDate(dateStr);
+                    const q = Math.floor(d.getMonth() / 3) + 1;
+                    return `Q-${d.getFullYear()}-Q${q}`;
+                }
+                if (type === 'yearly') {
+                    const d = parseLocalDate(dateStr);
+                    return `YR-${d.getFullYear()}`;
+                }
+                if (type === 'one-off') {
+                    return 'ONE-OFF-DONE';
+                }
+                return dateStr;
+            };
+
+            const isTaskCompletedOnDate = (task, dateStr = currentDate) => {
+                if (!task.completed) return false;
+                const key = getTaskCompletionKey(task, dateStr);
+                return !!task.completed[key];
+            };
+
+            // Check if task is overdue relative to dateStr
+            const isTaskOverdue = (task, dateStr = currentDate) => {
+                if (!task.dueDate) return false;
+                if (isTaskCompletedOnDate(task, dateStr)) return false;
+                return task.dueDate < dateStr;
+            };
+
+            // Check if dateStr matches any selected week(s) of month (1st..5th) & day(s) of week (0..6)
+            const matchesNthWeekday = (dateStr, targetWeeks, targetDays) => {
+                const d = parseLocalDate(dateStr);
+                const weeksArr = Array.isArray(targetWeeks) ? targetWeeks.map(Number) : [Number(targetWeeks)];
+                const daysArr = Array.isArray(targetDays) ? targetDays.map(Number) : [Number(targetDays)];
+                
+                if (!daysArr.includes(d.getDay())) return false;
+
+                // Count which occurrence of this weekday this date is within its calendar month
                 let count = 0;
                 const temp = new Date(d.getFullYear(), d.getMonth(), 1);
                 while (temp <= d) {
-                    if (temp.getDay() === Number(targetDay)) count++;
+                    if (temp.getDay() === d.getDay()) count++;
                     temp.setDate(temp.getDate() + 1);
                 }
-                return count === Number(targetNth);
+                return weeksArr.includes(count);
             };
 
+            // Check if a task occurs on a specific date
             const taskOccursOnDate = (task, dateStr) => {
-                const d = new Date(dateStr);
+                const d = parseLocalDate(dateStr);
                 const dayOfWeek = d.getDay();
                 const type = task.freqType || task.frequency;
 
                 if (type === 'daily') return true;
                 if (type === 'weekdays') return dayOfWeek >= 1 && dayOfWeek <= 5;
                 if (type === 'weekends') return dayOfWeek === 0 || dayOfWeek === 6;
+                if (type === 'weekly') return true;
                 if (type === 'custom-weekly') {
                     const days = task.customDays || [];
                     return days.includes(dayOfWeek);
                 }
                 if (type === 'nth-weekday') {
-                    return matchesNthWeekday(dateStr, task.nthWeek, task.nthDay);
+                    const weeks = task.nthWeeks || (task.nthWeek ? [task.nthWeek] : []);
+                    const days = task.nthDays || (task.nthDay !== undefined ? [task.nthDay] : []);
+                    return matchesNthWeekday(dateStr, weeks, days);
                 }
+                if (type === 'monthly' || type === 'quarterly' || type === 'yearly') return true;
                 if (type === 'one-off') {
-                    return task.dueDate === dateStr;
+                    return task.dueDate === dateStr || isTaskOverdue(task, dateStr);
                 }
                 return true;
             };
 
-            const isTaskVisibleForView = (task) => {
-                if (view === 'daily') {
-                    return taskOccursOnDate(task, currentDate);
+            // Filter tasks based on active view tab:
+            // 'all' -> Everything (all tasks regardless of frequency)
+            // 'daily' -> Daily cadence tasks scheduled on currentDate (plus any overdue tasks)
+            // 'weekly' -> Weekly cadence tasks
+            // 'monthly' -> Monthly cadence tasks
+            const isTaskVisibleForView = (task, activeView = view) => {
+                const overdue = isTaskOverdue(task, currentDate);
+                if (activeView === 'all') return true;
+
+                const bucket = getTaskCadenceBucket(task);
+                if (activeView === 'daily') {
+                    if (overdue) return true;
+                    return bucket === 'daily' && taskOccursOnDate(task, currentDate);
                 }
-                if (view === 'weekly') {
-                    const curr = new Date(currentDate);
-                    const firstDay = new Date(curr.setDate(curr.getDate() - curr.getDay()));
-                    for (let i = 0; i < 7; i++) {
-                        const checkDate = new Date(firstDay);
-                        checkDate.setDate(checkDate.getDate() + i);
-                        if (taskOccursOnDate(task, checkDate.toISOString().split('T')[0])) return true;
-                    }
-                    return false;
+                if (activeView === 'weekly') {
+                    return bucket === 'weekly';
                 }
-                if (view === 'monthly') {
-                    const curr = new Date(currentDate);
-                    const year = curr.getFullYear();
-                    const month = curr.getMonth();
-                    const daysInMonth = new Date(year, month + 1, 0).getDate();
-                    for (let day = 1; day <= daysInMonth; day++) {
-                        const checkStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                        if (taskOccursOnDate(task, checkStr)) return true;
-                    }
-                    return false;
+                if (activeView === 'monthly') {
+                    return bucket === 'monthly';
                 }
                 return true;
             };
 
             const toggleTask = (catId, subId, taskId) => {
-                const key = getDateKey();
                 updateCategoriesAndCloud(prev => prev.map(cat => {
                     if (cat.id !== catId) return cat;
                     return {
@@ -311,10 +399,11 @@
                                 ...sub,
                                 tasks: sub.tasks.map(task => {
                                     if (task.id !== taskId) return task;
-                                    const currentStatus = !!task.completed[key];
+                                    const key = getTaskCompletionKey(task, currentDate);
+                                    const currentStatus = !!(task.completed && task.completed[key]);
                                     return {
                                         ...task,
-                                        completed: { ...task.completed, [key]: !currentStatus }
+                                        completed: { ...(task.completed || {}), [key]: !currentStatus }
                                     };
                                 })
                             };
@@ -323,8 +412,42 @@
                 }));
             };
 
-            const deleteTask = (catId, subId, taskId) => {
-                if (!confirm("Are you sure you want to delete this task?")) return;
+            const requestDeleteTask = (catId, subId, task) => {
+                setConfirmDialog({
+                    title: 'Delete Task',
+                    message: `Are you sure you want to delete "${task.name}"?`,
+                    onConfirm: () => {
+                        updateCategoriesAndCloud(prev => prev.map(cat => {
+                            if (cat.id !== catId) return cat;
+                            return {
+                                ...cat,
+                                subcomponents: cat.subcomponents.map(sub => {
+                                    if (sub.id !== subId) return sub;
+                                    return {
+                                        ...sub,
+                                        tasks: sub.tasks.filter(t => t.id !== task.id)
+                                    };
+                                })
+                            };
+                        }));
+                        setConfirmDialog(null);
+                        showToast('Task deleted.');
+                    }
+                });
+            };
+
+            const openTaskDetailModal = (catId, subId, task) => {
+                setEditingTaskCtx({ catId, subId, task });
+                setEditTaskName(task.name || '');
+                setEditTaskDueDate(task.dueDate || '');
+                setEditTaskComments(task.comments || '');
+            };
+
+            const handleSaveTaskDetails = (e) => {
+                e.preventDefault();
+                if (!editingTaskCtx || !editTaskName.trim()) return;
+                const { catId, subId, task } = editingTaskCtx;
+
                 updateCategoriesAndCloud(prev => prev.map(cat => {
                     if (cat.id !== catId) return cat;
                     return {
@@ -333,25 +456,45 @@
                             if (sub.id !== subId) return sub;
                             return {
                                 ...sub,
-                                tasks: sub.tasks.filter(task => task.id !== taskId)
+                                tasks: sub.tasks.map(t => {
+                                    if (t.id !== task.id) return t;
+                                    return {
+                                        ...t,
+                                        name: editTaskName.trim(),
+                                        dueDate: editTaskDueDate || null,
+                                        comments: editTaskComments
+                                    };
+                                })
                             };
                         })
                     };
                 }));
+
+                setEditingTaskCtx(null);
+                showToast('Task updated.');
             };
 
             const handleAddTask = (e) => {
                 e.preventDefault();
                 if (!newTaskName.trim()) return;
 
+                if (newTaskFreqType === 'nth-weekday' && (newTaskMultiWeeks.length === 0 || newTaskMultiDays.length === 0)) {
+                    showToast('Please select at least one week and one day of the month.');
+                    return;
+                }
+
+                const sortedWeeks = [...newTaskMultiWeeks].sort((a, b) => a - b);
+                const sortedDays = [...newTaskMultiDays].sort((a, b) => a - b);
+
                 const newTask = {
                     id: 'task_' + Date.now(),
                     name: newTaskName.trim(),
                     freqType: newTaskFreqType,
-                    customDays: newTaskDays,
-                    nthWeek: newTaskNthWeek,
-                    nthDay: newTaskNthDay,
+                    customDays: [...newTaskDays].sort((a, b) => a - b),
+                    nthWeeks: sortedWeeks,
+                    nthDays: sortedDays,
                     dueDate: newTaskFreqType === 'one-off' ? newTaskDueDate : null,
+                    comments: newTaskComments.trim(),
                     completed: {}
                 };
 
@@ -370,14 +513,16 @@
                 }));
 
                 setNewTaskName('');
+                setNewTaskComments('');
                 setIsTaskModalOpen(false);
+                showToast('Task added!');
             };
 
             const exportBackup = () => {
                 const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(categories, null, 2));
                 const downloadAnchor = document.createElement('a');
                 downloadAnchor.setAttribute("href", dataStr);
-                downloadAnchor.setAttribute("download", `goal_tracker_backup_${new Date().toISOString().split('T')[0]}.json`);
+                downloadAnchor.setAttribute("download", `goal_tracker_backup_${formatLocalDate(new Date())}.json`);
                 document.body.appendChild(downloadAnchor);
                 downloadAnchor.click();
                 downloadAnchor.remove();
@@ -391,25 +536,51 @@
                         try {
                             const parsed = JSON.parse(event.target.result);
                             updateCategoriesAndCloud(parsed);
-                            alert("Data successfully restored and synced!");
+                            showToast("Data successfully restored and synced!");
                             setIsSyncModalOpen(false);
                         } catch (err) {
-                            alert("Invalid backup file format.");
+                            showToast("Invalid backup file format.");
                         }
                     };
                 }
             };
 
-            const key = getDateKey();
+            const getFreqLabel = (task) => {
+                const type = task.freqType || task.frequency;
+                if (type === 'daily') return 'Daily';
+                if (type === 'weekdays') return 'Mon-Fri';
+                if (type === 'weekends') return 'Weekends';
+                if (type === 'weekly') return 'Weekly (Mon-Sun)';
+                if (type === 'custom-weekly') {
+                    const map = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                    return (task.customDays || []).map(d => map[d]).join(', ');
+                }
+                if (type === 'nth-weekday') {
+                    const weekLabels = ['1st', '2nd', '3rd', '4th', '5th'];
+                    const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                    const weeks = task.nthWeeks || (task.nthWeek ? [task.nthWeek] : []);
+                    const days = task.nthDays || (task.nthDay !== undefined ? [task.nthDay] : []);
+                    const wStr = weeks.map(w => weekLabels[w - 1]).join('&');
+                    const dStr = days.map(d => dayLabels[d]).join('/');
+                    return `${wStr} ${dStr}`;
+                }
+                if (type === 'monthly') return 'Monthly';
+                if (type === 'quarterly') return 'Quarterly';
+                if (type === 'yearly') return 'Yearly';
+                if (type === 'one-off') return task.dueDate ? `Due: ${task.dueDate}` : 'One-Off';
+                return type;
+            };
+
+            // Main progress bar metrics dynamically reflect active view filter
             let totalTasks = 0;
             let completedTasks = 0;
 
             categories.forEach(cat => {
                 cat.subcomponents.forEach(sub => {
                     sub.tasks.forEach(task => {
-                        if (isTaskVisibleForView(task)) {
+                        if (isTaskVisibleForView(task, view)) {
                             totalTasks++;
-                            if (task.completed[key]) completedTasks++;
+                            if (isTaskCompletedOnDate(task, currentDate)) completedTasks++;
                         }
                     });
                 });
@@ -417,26 +588,44 @@
 
             const percent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
+            // Report calculation respects active view filter (unless Master Print All is checked)
             const generateReportData = () => {
                 let scopedCats = categories;
                 if (!isMasterReport && reportCategoryScope !== 'all') {
                     scopedCats = categories.filter(c => c.id === reportCategoryScope);
                 }
 
+                const effectiveViewFilter = isMasterReport ? 'all' : view;
                 let total = 0;
                 let completed = 0;
                 const catBreakdown = [];
+                const completedList = [];
+                const incompleteList = [];
 
                 scopedCats.forEach(cat => {
                     let catTotal = 0;
                     let catDone = 0;
                     cat.subcomponents.forEach(sub => {
                         sub.tasks.forEach(task => {
+                            if (!isTaskVisibleForView(task, effectiveViewFilter)) return;
                             catTotal++;
                             total++;
-                            if (task.completed[key]) {
+                            const done = isTaskCompletedOnDate(task, currentDate);
+                            const overdue = isTaskOverdue(task, currentDate);
+                            const taskSummary = {
+                                id: task.id,
+                                name: task.name,
+                                categoryName: cat.name,
+                                subName: sub.name,
+                                freqLabel: getFreqLabel(task),
+                                overdue
+                            };
+                            if (done) {
                                 catDone++;
                                 completed++;
+                                completedList.push(taskSummary);
+                            } else {
+                                incompleteList.push(taskSummary);
                             }
                         });
                     });
@@ -449,126 +638,183 @@
                 });
 
                 const overallRate = total > 0 ? Math.round((completed / total) * 100) : 0;
-                let feedback = overallRate >= 80 ? "🟢 Excellent execution. High consistency maintained." : overallRate >= 50 ? "🟡 Moderate momentum. Some recurring routines need attention." : "🔴 Low completion rate. Review task loads and bottlenecks.";
-                return { total, completed, overallRate, catBreakdown, feedback };
+                let feedback = overallRate >= 80
+                    ? "🟢 Excellent execution. High consistency maintained."
+                    : overallRate >= 50
+                        ? "🟡 Moderate momentum. Some recurring routines need attention."
+                        : "🔴 Low completion rate. Review task loads and bottlenecks.";
+
+                return { total, completed, overallRate, catBreakdown, completedList, incompleteList, feedback };
             };
 
             const reportData = generateReportData();
 
-            const getFreqLabel = (task) => {
-                const type = task.freqType || task.frequency;
-                if (type === 'daily') return 'Daily';
-                if (type === 'weekdays') return 'Mon-Fri';
-                if (type === 'weekends') return 'Weekends';
-                if (type === 'custom-weekly') {
-                    const map = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-                    return (task.customDays || []).map(d => map[d]).join(', ');
-                }
-                if (type === 'nth-weekday') {
-                    const weeks = ['1st', '2nd', '3rd', '4th', '5th'];
-                    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-                    return `${weeks[task.nthWeek - 1]} ${days[task.nthDay]}`;
-                }
-                if (type === 'one-off') return `Due: ${task.dueDate}`;
-                return type;
+            // Helper to map legacy light-mode category badge classes to dark-mode equivalents if loaded from localStorage
+            const getDarkCategoryBadge = (cat) => {
+                const map = {
+                    family: 'bg-emerald-950/70 text-emerald-300 border-emerald-800/80',
+                    church: 'bg-indigo-950/70 text-indigo-300 border-indigo-800/80',
+                    consulting: 'bg-amber-950/70 text-amber-300 border-amber-800/80',
+                    self_imp: 'bg-sky-950/70 text-sky-300 border-sky-800/80'
+                };
+                return map[cat.id] || cat.color;
+            };
+
+            const viewLabels = {
+                all: 'All Tasks',
+                daily: 'Daily Tasks',
+                weekly: 'Weekly Tasks',
+                monthly: 'Monthly Tasks'
             };
 
             return (
                 <div className="max-w-5xl mx-auto p-4 sm:p-6">
+                    {/* Floating Toast Notification */}
+                    {toastMessage && (
+                        <div className="fixed bottom-5 right-5 z-50 bg-slate-800 text-slate-100 text-xs font-semibold px-4 py-3 rounded-xl shadow-xl border border-slate-700 animate-fade-in">
+                            {toastMessage}
+                        </div>
+                    )}
+
                     {/* Header */}
-                    <header className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
+                    <header className="bg-slate-900 rounded-2xl shadow-lg border border-slate-800 p-6 mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
                         <div>
                             <div className="flex items-center gap-3">
-                                <h1 className="text-2xl font-bold text-slate-900">Goal & Task Tracker</h1>
-                                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${syncStatus.includes('Synced') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                                <h1 className="text-2xl font-bold text-white">Goal & Task Tracker</h1>
+                                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${syncStatus.includes('Synced') ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800' : 'bg-slate-800 text-slate-300 border-slate-700'}`}>
                                     {syncStatus}
                                 </span>
                             </div>
-                            <p className="text-sm text-slate-500">Live multi-device sync, daily habits, and performance reports.</p>
+                            <p className="text-sm text-slate-400">Live multi-device sync, daily habits, and performance reports.</p>
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
-                            <div className="flex items-center bg-slate-100 rounded-xl p-1 border border-slate-200">
-                                <button onClick={handlePrevDate} title="Previous" className="p-1.5 hover:bg-white rounded-lg text-slate-600 transition shadow-sm font-bold text-xs">◀</button>
-                                <button onClick={handleToday} className="px-2 text-xs font-semibold text-slate-700 hover:text-blue-600">Today</button>
-                                <button onClick={handleNextDate} title="Next" className="p-1.5 hover:bg-white rounded-lg text-slate-600 transition shadow-sm font-bold text-xs">▶</button>
+                            <div className="flex items-center bg-slate-800 rounded-xl p-1 border border-slate-700">
+                                <button onClick={handlePrevDate} title="Previous" className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-300 transition shadow-sm font-bold text-xs">◀</button>
+                                <button onClick={handleToday} className="px-2 text-xs font-semibold text-slate-200 hover:text-blue-400">Today</button>
+                                <button onClick={handleNextDate} title="Next" className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-300 transition shadow-sm font-bold text-xs">▶</button>
                             </div>
                             <input 
                                 type="date" 
                                 value={currentDate} 
                                 onChange={e => setCurrentDate(e.target.value)}
-                                className="px-3 py-2 border rounded-xl text-sm font-medium bg-slate-50 border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                style={{ colorScheme: 'dark' }}
+                                className="px-3 py-2 border rounded-xl text-sm font-medium bg-slate-800 text-slate-100 border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
-                            <button onClick={() => setIsReportModalOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-3 py-2 rounded-xl text-sm transition shadow-sm">
+                            <button onClick={() => setIsReportModalOpen(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-3 py-2 rounded-xl text-sm transition shadow-sm">
                                 📊 Reports
                             </button>
-                            <button onClick={() => setIsSyncModalOpen(true)} className="bg-slate-800 hover:bg-slate-900 text-white font-medium px-3 py-2 rounded-xl text-sm transition shadow-sm">
+                            <button onClick={() => setIsSyncModalOpen(true)} className="bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-medium px-3 py-2 rounded-xl text-sm transition shadow-sm">
                                 ⚡ Cloud & Backup
                             </button>
-                            <button onClick={() => setIsTaskModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-xl text-sm transition shadow-sm">
+                            <button onClick={() => setIsTaskModalOpen(true)} className="bg-blue-600 hover:bg-blue-500 text-white font-medium px-4 py-2 rounded-xl text-sm transition shadow-sm">
                                 + Add Task
                             </button>
                         </div>
                     </header>
 
                     {/* View Switcher & Progress Bar */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+                    <div className="bg-slate-900 rounded-2xl shadow-lg border border-slate-800 p-6 mb-6">
                         <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
-                            <div className="inline-flex rounded-xl bg-slate-100 p-1">
-                                <button onClick={() => setView('daily')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === 'daily' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Daily View</button>
-                                <button onClick={() => setView('weekly')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === 'weekly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Weekly View</button>
-                                <button onClick={() => setView('monthly')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === 'monthly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Monthly View</button>
+                            <div className="inline-flex flex-wrap rounded-xl bg-slate-800 p-1 gap-1 border border-slate-700/60">
+                                <button onClick={() => setView('all')} className={`px-3.5 py-2 rounded-lg text-sm font-medium transition ${view === 'all' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>All Tasks</button>
+                                <button onClick={() => setView('daily')} className={`px-3.5 py-2 rounded-lg text-sm font-medium transition ${view === 'daily' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>Daily Tasks</button>
+                                <button onClick={() => setView('weekly')} className={`px-3.5 py-2 rounded-lg text-sm font-medium transition ${view === 'weekly' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>Weekly Tasks</button>
+                                <button onClick={() => setView('monthly')} className={`px-3.5 py-2 rounded-lg text-sm font-medium transition ${view === 'monthly' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>Monthly Tasks</button>
                             </div>
                             <div className="text-right">
-                                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Completion Status ({view})</span>
-                                <div className="text-lg font-bold text-slate-800">{completedTasks} / {totalTasks} Tasks ({percent}%)</div>
+                                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Completion Status ({viewLabels[view]})</span>
+                                <div className="text-lg font-bold text-slate-100">{completedTasks} / {totalTasks} Tasks ({percent}%)</div>
                             </div>
                         </div>
-                        <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-                            <div className="bg-blue-600 h-3 rounded-full transition-all duration-500" style={{ width: `${percent}%` }}></div>
+                        <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden">
+                            <div className="bg-blue-500 h-3 rounded-full transition-all duration-500" style={{ width: `${percent}%` }}></div>
+                        </div>
+                        <div className="mt-2.5 flex flex-wrap justify-between items-center text-[11px] text-slate-500">
+                            <span>💡 Click any task title to edit its due date or add comments/notes.</span>
+                            <span>
+                                {view === 'weekly' && `Week window: Mon ${getMondayOfWeekStr(currentDate)} – Sun`}
+                                {view === 'monthly' && `Month window: ${currentDate.slice(0, 7)} (resets on the 1st)`}
+                            </span>
                         </div>
                     </div>
 
                     {/* Categories Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {categories.map(cat => {
-                            const hasVisible = cat.subcomponents.some(sub => sub.tasks.some(isTaskVisibleForView));
+                            const hasVisible = cat.subcomponents.some(sub => sub.tasks.some(t => isTaskVisibleForView(t, view)));
                             return (
-                                <div key={cat.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between">
+                                <div key={cat.id} className="bg-slate-900 rounded-2xl shadow-lg border border-slate-800 p-6 flex flex-col justify-between">
                                     <div>
-                                        <div className={`inline-block px-3 py-1 rounded-full text-xs font-semibold border mb-4 ${cat.color}`}>
+                                        <div className={`inline-block px-3 py-1 rounded-full text-xs font-semibold border mb-4 ${getDarkCategoryBadge(cat)}`}>
                                             {cat.name}
                                         </div>
                                         <div className="space-y-4">
                                             {cat.subcomponents.map(sub => {
-                                                const visibleSubTasks = sub.tasks.filter(isTaskVisibleForView);
+                                                const visibleSubTasks = sub.tasks.filter(t => isTaskVisibleForView(t, view));
                                                 if (visibleSubTasks.length === 0) return null;
                                                 return (
-                                                    <div key={sub.id} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                                                    <div key={sub.id} className="border-b border-slate-800 pb-3 last:border-0 last:pb-0">
                                                         <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">{sub.name}</h4>
                                                         <ul className="space-y-2">
                                                             {visibleSubTasks.map(task => {
-                                                                const isChecked = !!task.completed[key];
+                                                                const isChecked = isTaskCompletedOnDate(task, currentDate);
+                                                                const overdue = isTaskOverdue(task, currentDate);
+                                                                const hasComments = !!(task.comments && task.comments.trim());
                                                                 return (
-                                                                    <li key={task.id} className="flex items-center justify-between group">
-                                                                        <label className="flex items-center gap-3 cursor-pointer select-none">
+                                                                    <li 
+                                                                        key={task.id} 
+                                                                        className={`flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 transition ${overdue ? 'bg-red-950/50 border border-red-800/80' : 'hover:bg-slate-800/70 border border-transparent'}`}
+                                                                    >
+                                                                        <div className="flex items-center gap-3 min-w-0 flex-1">
                                                                             <input 
                                                                                 type="checkbox" 
                                                                                 checked={isChecked}
                                                                                 onChange={() => toggleTask(cat.id, sub.id, task.id)}
-                                                                                className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                                                                                className="w-4 h-4 text-blue-500 bg-slate-800 rounded border-slate-600 focus:ring-blue-500 focus:ring-offset-slate-900 shrink-0 cursor-pointer"
                                                                             />
-                                                                            <span className={`text-sm ${isChecked ? 'line-through text-slate-400' : 'text-slate-700 font-medium'}`}>
-                                                                                {task.name}
-                                                                            </span>
-                                                                        </label>
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-medium">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => openTaskDetailModal(cat.id, sub.id, task)}
+                                                                                title="Click to edit due date or add notes"
+                                                                                className="text-left min-w-0 flex-1 group/title"
+                                                                            >
+                                                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                                                    <span className={`text-sm truncate group-hover/title:underline ${isChecked ? 'line-through text-slate-500' : overdue ? 'text-red-300 font-semibold' : 'text-slate-200 font-medium'}`}>
+                                                                                        {task.name}
+                                                                                    </span>
+                                                                                    {overdue && (
+                                                                                        <span className="text-[10px] font-bold uppercase tracking-wider bg-red-600 text-white px-1.5 py-0.5 rounded">
+                                                                                            Overdue ({task.dueDate})
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {!overdue && task.dueDate && (task.freqType || task.frequency) !== 'one-off' && (
+                                                                                        <span className="text-[10px] font-medium bg-amber-950/80 text-amber-300 border border-amber-800 px-1.5 py-0.5 rounded">
+                                                                                            Due {task.dueDate}
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {hasComments && (
+                                                                                        <span title={task.comments} className="text-[10px] font-semibold bg-blue-950/80 text-blue-300 border border-blue-800 px-1.5 py-0.5 rounded">
+                                                                                            💬 Note
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                            </button>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-1.5 shrink-0">
+                                                                            <span className={`text-[10px] px-2 py-0.5 rounded-md font-medium ${overdue ? 'bg-red-900/70 text-red-200' : 'bg-slate-800 text-slate-400'}`}>
                                                                                 {getFreqLabel(task)}
                                                                             </span>
                                                                             <button 
-                                                                                onClick={() => deleteTask(cat.id, sub.id, task.id)}
+                                                                                onClick={() => openTaskDetailModal(cat.id, sub.id, task)}
+                                                                                title="Edit due date & comments"
+                                                                                className="text-slate-500 hover:text-blue-400 transition text-xs px-1"
+                                                                            >
+                                                                                ✎
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => requestDeleteTask(cat.id, sub.id, task)}
                                                                                 title="Delete task"
-                                                                                className="text-slate-300 hover:text-red-500 transition text-xs px-1 font-bold"
+                                                                                className="text-slate-600 hover:text-red-400 transition text-xs px-1 font-bold"
                                                                             >
                                                                                 ✕
                                                                             </button>
@@ -581,7 +827,7 @@
                                                 );
                                             })}
                                             {!hasVisible && (
-                                                <p className="text-xs text-slate-400 italic py-2">No tasks scheduled for this {view}.</p>
+                                                <p className="text-xs text-slate-500 italic py-2">No tasks scheduled for {viewLabels[view].toLowerCase()}.</p>
                                             )}
                                         </div>
                                     </div>
@@ -590,14 +836,88 @@
                         })}
                     </div>
 
+                    {/* Task Details / Due Date & Comment Modal */}
+                    {editingTaskCtx && (
+                        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <div className="bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-800">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="text-lg font-bold text-white">Task Details & Notes</h3>
+                                    <button onClick={() => setEditingTaskCtx(null)} className="text-slate-400 hover:text-slate-200 font-bold">✕</button>
+                                </div>
+                                <form onSubmit={handleSaveTaskDetails} className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Task Name</label>
+                                        <input 
+                                            type="text" 
+                                            value={editTaskName}
+                                            onChange={e => setEditTaskName(e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">Due Date (Optional)</label>
+                                            {editTaskDueDate && (
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => setEditTaskDueDate('')}
+                                                    className="text-[11px] text-blue-400 hover:underline font-medium"
+                                                >
+                                                    Clear Date
+                                                </button>
+                                            )}
+                                        </div>
+                                        <input 
+                                            type="date" 
+                                            value={editTaskDueDate}
+                                            onChange={e => setEditTaskDueDate(e.target.value)}
+                                            style={{ colorScheme: 'dark' }}
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        />
+                                        <p className="text-[11px] text-slate-500 mt-1">Incomplete tasks past their due date are flagged as Overdue.</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Comments / Notes</label>
+                                        <textarea 
+                                            rows="4"
+                                            placeholder="Add context, links, or progress notes for this task..."
+                                            value={editTaskComments}
+                                            onChange={e => setEditTaskComments(e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 placeholder-slate-500 border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        ></textarea>
+                                    </div>
+                                    <div className="flex justify-end gap-3 pt-2">
+                                        <button type="button" onClick={() => setEditingTaskCtx(null)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-300 hover:bg-slate-800">Cancel</button>
+                                        <button type="submit" className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 shadow-sm">Save Changes</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Custom Delete Confirmation Modal */}
+                    {confirmDialog && (
+                        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <div className="bg-slate-900 rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-800">
+                                <h3 className="text-lg font-bold text-white mb-2">{confirmDialog.title}</h3>
+                                <p className="text-sm text-slate-300 mb-6">{confirmDialog.message}</p>
+                                <div className="flex justify-end gap-3">
+                                    <button onClick={() => setConfirmDialog(null)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-300 hover:bg-slate-800">Cancel</button>
+                                    <button onClick={confirmDialog.onConfirm} className="px-4 py-2 rounded-xl text-sm font-medium bg-red-600 text-white hover:bg-red-500 shadow-sm">Delete</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Add Task Modal */}
                     {isTaskModalOpen && (
-                        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200">
-                                <h3 className="text-lg font-bold text-slate-900 mb-4">Add Granular Task</h3>
+                        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <div className="bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-800 max-h-[90vh] overflow-y-auto">
+                                <h3 className="text-lg font-bold text-white mb-4">Add Granular Task</h3>
                                 <form onSubmit={handleAddTask} className="space-y-4">
                                     <div>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Category</label>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Category</label>
                                         <select 
                                             value={selectedCategory} 
                                             onChange={e => {
@@ -605,45 +925,46 @@
                                                 const cat = categories.find(c => c.id === e.target.value);
                                                 if (cat && cat.subcomponents.length > 0) setSelectedSubcomp(cat.subcomponents[0].id);
                                             }}
-                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 border-slate-700"
                                         >
                                             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Subcomponent</label>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Subcomponent</label>
                                         <select 
                                             value={selectedSubcomp} 
                                             onChange={e => setSelectedSubcomp(e.target.value)}
-                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 border-slate-700"
                                         >
                                             {categories.find(c => c.id === selectedCategory)?.subcomponents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Task Name</label>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Task Name</label>
                                         <input 
                                             type="text" 
                                             placeholder="e.g. Weekly Review / Team Sync" 
                                             value={newTaskName}
                                             onChange={e => setNewTaskName(e.target.value)}
-                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 placeholder-slate-500 border-slate-700"
                                             required
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Recurrence Pattern</label>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Recurrence Pattern</label>
                                         <select 
                                             value={newTaskFreqType} 
                                             onChange={e => setNewTaskFreqType(e.target.value)}
-                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 border-slate-700"
                                         >
                                             <option value="daily">Daily</option>
                                             <option value="weekdays">Weekdays (Mon - Fri)</option>
                                             <option value="weekends">Weekends (Sat & Sun)</option>
+                                            <option value="weekly">Weekly (Resets Monday Morning)</option>
                                             <option value="custom-weekly">Weekly on Specific Days</option>
-                                            <option value="nth-weekday">Nth Weekday of Month (e.g. 2nd Tuesday)</option>
-                                            <option value="monthly">Monthly (Standard)</option>
+                                            <option value="nth-weekday">Specific Weeks & Days of Month (e.g. 2nd & 4th Tue)</option>
+                                            <option value="monthly">Monthly (Resets 1st of Month)</option>
                                             <option value="quarterly">Quarterly</option>
                                             <option value="yearly">Yearly</option>
                                             <option value="one-off">One-Off Task (Due Date)</option>
@@ -653,7 +974,7 @@
                                     {/* Custom Weekly Day Selector */}
                                     {newTaskFreqType === 'custom-weekly' && (
                                         <div>
-                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Select Active Days</label>
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Select Active Days</label>
                                             <div className="flex gap-1 justify-between">
                                                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayName, idx) => {
                                                     const isSelected = newTaskDays.includes(idx);
@@ -668,7 +989,7 @@
                                                                     setNewTaskDays([...newTaskDays, idx]);
                                                                 }
                                                             }}
-                                                            className={`flex-1 py-1.5 text-xs font-bold rounded-lg border transition ${isSelected ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-slate-50 text-slate-600 border-slate-300 hover:bg-slate-100'}`}
+                                                            className={`flex-1 py-1.5 text-xs font-bold rounded-lg border transition ${isSelected ? 'bg-blue-600 text-white border-blue-500 shadow-sm' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'}`}
                                                         >
                                                             {dayName[0]}
                                                         </button>
@@ -678,38 +999,62 @@
                                         </div>
                                     )}
 
-                                    {/* Nth Weekday Selector */}
+                                    {/* Multi-Week & Multi-Day Toggle Selector */}
                                     {newTaskFreqType === 'nth-weekday' && (
-                                        <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                        <div className="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700 space-y-3">
                                             <div>
-                                                <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Occurrence</label>
-                                                <select 
-                                                    value={newTaskNthWeek} 
-                                                    onChange={e => setNewTaskNthWeek(Number(e.target.value))}
-                                                    className="w-full px-2 py-1.5 border rounded-lg text-xs bg-white border-slate-300"
-                                                >
-                                                    <option value="1">1st of month</option>
-                                                    <option value="2">2nd of month</option>
-                                                    <option value="3">3rd of month</option>
-                                                    <option value="4">4th of month</option>
-                                                    <option value="5">5th of month</option>
-                                                </select>
+                                                <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Toggle Weeks of Month (Pick 1 or more)</label>
+                                                <div className="flex gap-1.5">
+                                                    {[
+                                                        { val: 1, label: '1st' },
+                                                        { val: 2, label: '2nd' },
+                                                        { val: 3, label: '3rd' },
+                                                        { val: 4, label: '4th' },
+                                                        { val: 5, label: '5th' }
+                                                    ].map(wk => {
+                                                        const active = newTaskMultiWeeks.includes(wk.val);
+                                                        return (
+                                                            <button
+                                                                type="button"
+                                                                key={wk.val}
+                                                                onClick={() => {
+                                                                    if (active) {
+                                                                        setNewTaskMultiWeeks(newTaskMultiWeeks.filter(w => w !== wk.val));
+                                                                    } else {
+                                                                        setNewTaskMultiWeeks([...newTaskMultiWeeks, wk.val]);
+                                                                    }
+                                                                }}
+                                                                className={`flex-1 py-1.5 text-xs font-bold rounded-lg border transition ${active ? 'bg-blue-600 text-white border-blue-500 shadow-sm' : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-700'}`}
+                                                            >
+                                                                {wk.label}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
                                             <div>
-                                                <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Day of Week</label>
-                                                <select 
-                                                    value={newTaskNthDay} 
-                                                    onChange={e => setNewTaskNthDay(Number(e.target.value))}
-                                                    className="w-full px-2 py-1.5 border rounded-lg text-xs bg-white border-slate-300"
-                                                >
-                                                    <option value="0">Sunday</option>
-                                                    <option value="1">Monday</option>
-                                                    <option value="2">Tuesday</option>
-                                                    <option value="3">Wednesday</option>
-                                                    <option value="4">Thursday</option>
-                                                    <option value="5">Friday</option>
-                                                    <option value="6">Saturday</option>
-                                                </select>
+                                                <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Toggle Days of Week (Pick 1 or more)</label>
+                                                <div className="flex gap-1">
+                                                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayName, idx) => {
+                                                        const active = newTaskMultiDays.includes(idx);
+                                                        return (
+                                                            <button
+                                                                type="button"
+                                                                key={idx}
+                                                                onClick={() => {
+                                                                    if (active) {
+                                                                        setNewTaskMultiDays(newTaskMultiDays.filter(d => d !== idx));
+                                                                    } else {
+                                                                        setNewTaskMultiDays([...newTaskMultiDays, idx]);
+                                                                    }
+                                                                }}
+                                                                className={`flex-1 py-1.5 text-xs font-bold rounded-lg border transition ${active ? 'bg-blue-600 text-white border-blue-500 shadow-sm' : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-700'}`}
+                                                            >
+                                                                {dayName}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
                                         </div>
                                     )}
@@ -717,20 +1062,32 @@
                                     {/* One-off Due Date */}
                                     {newTaskFreqType === 'one-off' && (
                                         <div>
-                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Due By Date</label>
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Due By Date</label>
                                             <input 
                                                 type="date" 
                                                 value={newTaskDueDate}
                                                 onChange={e => setNewTaskDueDate(e.target.value)}
-                                                className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
+                                                style={{ colorScheme: 'dark' }}
+                                                className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 border-slate-700"
                                                 required
                                             />
                                         </div>
                                     )}
 
+                                    <div>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Initial Notes / Comments (Optional)</label>
+                                        <textarea 
+                                            rows="2"
+                                            placeholder="Optional notes..."
+                                            value={newTaskComments}
+                                            onChange={e => setNewTaskComments(e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 placeholder-slate-500 border-slate-700"
+                                        ></textarea>
+                                    </div>
+
                                     <div className="flex justify-end gap-3 mt-6">
-                                        <button type="button" onClick={() => setIsTaskModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button>
-                                        <button type="submit" className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm">Save Task</button>
+                                        <button type="button" onClick={() => setIsTaskModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-300 hover:bg-slate-800">Cancel</button>
+                                        <button type="submit" className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 shadow-sm">Save Task</button>
                                     </div>
                                 </form>
                             </div>
@@ -739,17 +1096,22 @@
 
                     {/* Report Generator Modal */}
                     {isReportModalOpen && (
-                        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                            <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
+                        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <div className="bg-slate-900 rounded-2xl shadow-2xl max-w-2xl w-full p-6 border border-slate-800 max-h-[90vh] overflow-y-auto">
                                 <div className="flex justify-between items-center mb-4">
-                                    <h3 className="text-xl font-bold text-slate-900">📊 Performance & Analytical Report</h3>
-                                    <button onClick={() => setIsReportModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg font-bold">✕</button>
+                                    <div>
+                                        <h3 className="text-xl font-bold text-white">📊 Performance & Analytical Report</h3>
+                                        <p className="text-xs text-slate-400">
+                                            Active Filter: <strong className="text-slate-200">{isMasterReport ? 'All Tasks (Master Override)' : viewLabels[view]}</strong> • Date: <strong className="text-slate-200">{currentDate}</strong>
+                                        </p>
+                                    </div>
+                                    <button onClick={() => setIsReportModalOpen(false)} className="text-slate-400 hover:text-slate-200 text-lg font-bold">✕</button>
                                 </div>
                                 <div className="space-y-4 mb-6">
                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                         <div>
-                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Timeframe</label>
-                                            <select value={reportTimeframe} onChange={e => setReportTimeframe(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300">
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Timeframe</label>
+                                            <select value={reportTimeframe} onChange={e => setReportTimeframe(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 border-slate-700">
                                                 <option value="weekly">Weekly Summary</option>
                                                 <option value="monthly">Monthly Summary</option>
                                                 <option value="quarterly">Quarterly Review</option>
@@ -757,51 +1119,51 @@
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Category Scope</label>
+                                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Category Scope</label>
                                             <select 
                                                 disabled={isMasterReport}
                                                 value={reportCategoryScope} 
                                                 onChange={e => setReportCategoryScope(e.target.value)} 
-                                                className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300 disabled:opacity-50"
+                                                className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 border-slate-700 disabled:opacity-50"
                                             >
                                                 <option value="all">All Categories</option>
                                                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                             </select>
                                         </div>
                                         <div className="flex flex-col justify-end">
-                                            <label className="flex items-center gap-2 cursor-pointer bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                                            <label className="flex items-center gap-2 cursor-pointer bg-slate-800 p-2.5 rounded-xl border border-slate-700">
                                                 <input 
                                                     type="checkbox"
                                                     checked={isMasterReport}
                                                     onChange={e => setIsMasterReport(e.target.checked)}
-                                                    className="w-4 h-4 text-blue-600 rounded border-slate-300"
+                                                    className="w-4 h-4 text-blue-500 bg-slate-900 rounded border-slate-600"
                                                 />
-                                                <span className="text-xs font-bold text-slate-700">Master Print All</span>
+                                                <span className="text-xs font-bold text-slate-200">Master Print All</span>
                                             </label>
                                         </div>
                                     </div>
 
-                                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-3">
+                                    <div className="bg-slate-800/70 rounded-xl p-4 border border-slate-700/80 space-y-3">
                                         <div className="flex justify-between items-center">
-                                            <h4 className="font-bold text-slate-800 text-sm">Executive Overview ({reportTimeframe.toUpperCase()})</h4>
-                                            {isMasterReport && <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full">Master Report Mode</span>}
+                                            <h4 className="font-bold text-slate-100 text-sm">Executive Overview ({reportTimeframe.toUpperCase()})</h4>
+                                            {isMasterReport && <span className="text-[10px] bg-blue-950 text-blue-300 border border-blue-800 font-bold px-2 py-0.5 rounded-full">Master Report Mode</span>}
                                         </div>
                                         <div className="grid grid-cols-3 gap-2 text-center">
-                                            <div className="bg-white p-2 rounded-lg border border-slate-200">
+                                            <div className="bg-slate-900 p-2 rounded-lg border border-slate-800">
                                                 <span className="text-[10px] text-slate-400 uppercase font-semibold">Total</span>
-                                                <div className="text-lg font-bold text-slate-800">{reportData.total}</div>
+                                                <div className="text-lg font-bold text-slate-100">{reportData.total}</div>
                                             </div>
-                                            <div className="bg-white p-2 rounded-lg border border-slate-200">
+                                            <div className="bg-slate-900 p-2 rounded-lg border border-slate-800">
                                                 <span className="text-[10px] text-slate-400 uppercase font-semibold">Completed</span>
-                                                <div className="text-lg font-bold text-emerald-600">{reportData.completed}</div>
+                                                <div className="text-lg font-bold text-emerald-400">{reportData.completed}</div>
                                             </div>
-                                            <div className="bg-white p-2 rounded-lg border border-slate-200">
+                                            <div className="bg-slate-900 p-2 rounded-lg border border-slate-800">
                                                 <span className="text-[10px] text-slate-400 uppercase font-semibold">Rate %</span>
-                                                <div className="text-lg font-bold text-blue-600">{reportData.overallRate}%</div>
+                                                <div className="text-lg font-bold text-blue-400">{reportData.overallRate}%</div>
                                             </div>
                                         </div>
-                                        <div className="text-xs font-medium text-slate-700 bg-white p-3 rounded-lg border border-slate-200">
-                                            <strong>Analytical Feedback:</strong> {reportData.feedback}
+                                        <div className="text-xs font-medium text-slate-200 bg-slate-900 p-3 rounded-lg border border-slate-800">
+                                            <strong className="text-white">Analytical Feedback:</strong> {reportData.feedback}
                                         </div>
                                     </div>
 
@@ -809,28 +1171,72 @@
                                         <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Category Breakdown</h4>
                                         <div className="space-y-2">
                                             {reportData.catBreakdown.map((cb, idx) => (
-                                                <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200 flex justify-between items-center text-sm">
-                                                    <span className="font-medium text-slate-700">{cb.name}</span>
-                                                    <span className="text-xs font-semibold px-2 py-1 bg-slate-100 rounded-md text-slate-600">{cb.done} / {cb.total} ({cb.rate}%)</span>
+                                                <div key={idx} className="bg-slate-800/60 p-3 rounded-xl border border-slate-800 flex justify-between items-center text-sm">
+                                                    <span className="font-medium text-slate-200">{cb.name}</span>
+                                                    <span className="text-xs font-semibold px-2 py-1 bg-slate-900 rounded-md text-slate-300 border border-slate-700">{cb.done} / {cb.total} ({cb.rate}%)</span>
                                                 </div>
                                             ))}
                                         </div>
                                     </div>
 
+                                    {/* Completed vs Incomplete Task Lists */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div className="bg-emerald-950/30 border border-emerald-800/70 rounded-xl p-3.5">
+                                            <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-300 mb-2 flex justify-between items-center">
+                                                <span>✅ Completed Tasks</span>
+                                                <span className="bg-emerald-900 text-emerald-200 px-2 py-0.5 rounded-full text-[10px]">{reportData.completedList.length}</span>
+                                            </h4>
+                                            {reportData.completedList.length === 0 ? (
+                                                <p className="text-xs text-slate-500 italic">No completed tasks in this view.</p>
+                                            ) : (
+                                                <ul className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                                                    {reportData.completedList.map(item => (
+                                                        <li key={item.id} className="bg-slate-900 p-2 rounded-lg border border-emerald-900/60 text-xs">
+                                                            <div className="font-semibold text-slate-100">{item.name}</div>
+                                                            <div className="text-[10px] text-slate-400">{item.categoryName} • {item.freqLabel}</div>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                        </div>
+
+                                        <div className="bg-rose-950/30 border border-rose-800/70 rounded-xl p-3.5">
+                                            <h4 className="text-xs font-bold uppercase tracking-wider text-rose-300 mb-2 flex justify-between items-center">
+                                                <span>⏳ Incomplete Tasks</span>
+                                                <span className="bg-rose-900 text-rose-200 px-2 py-0.5 rounded-full text-[10px]">{reportData.incompleteList.length}</span>
+                                            </h4>
+                                            {reportData.incompleteList.length === 0 ? (
+                                                <p className="text-xs text-slate-500 italic">All tasks completed!</p>
+                                            ) : (
+                                                <ul className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                                                    {reportData.incompleteList.map(item => (
+                                                        <li key={item.id} className={`p-2 rounded-lg border text-xs ${item.overdue ? 'bg-red-950/60 border-red-700' : 'bg-slate-900 border-rose-900/60'}`}>
+                                                            <div className="flex items-center justify-between gap-1">
+                                                                <span className="font-semibold text-slate-100">{item.name}</span>
+                                                                {item.overdue && <span className="text-[9px] font-bold bg-red-600 text-white px-1.5 py-0.5 rounded uppercase">Overdue</span>}
+                                                            </div>
+                                                            <div className="text-[10px] text-slate-400">{item.categoryName} • {item.freqLabel}</div>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                        </div>
+                                    </div>
+
                                     <div>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">User Reflections & Notes</label>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">User Reflections & Notes</label>
                                         <textarea 
                                             rows="3" 
                                             placeholder="Add personal reflections or focus items..." 
                                             value={userReportNotes}
                                             onChange={e => setUserReportNotes(e.target.value)}
-                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-50 border-slate-300"
+                                            className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 placeholder-slate-500 border-slate-700"
                                         ></textarea>
                                     </div>
                                 </div>
                                 <div className="flex justify-end gap-3">
-                                    <button onClick={() => setIsReportModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">Close</button>
-                                    <button onClick={() => window.print()} className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm">Print / Save as PDF</button>
+                                    <button onClick={() => setIsReportModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-slate-300 hover:bg-slate-800">Close</button>
+                                    <button onClick={() => window.print()} className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 shadow-sm">Print / Save as PDF</button>
                                 </div>
                             </div>
                         </div>
@@ -838,14 +1244,14 @@
 
                     {/* Cloud Sync & Backup Modal */}
                     {isSyncModalOpen && (
-                        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                            <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
-                                <h3 className="text-lg font-bold text-slate-900 mb-2">⚡ Firebase Cloud Sync & Backup</h3>
-                                <p className="text-xs text-slate-500 mb-4">Paste your Firebase configuration object below (both standard JS object format and JSON are supported).</p>
+                        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <div className="bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-800 max-h-[90vh] overflow-y-auto">
+                                <h3 className="text-lg font-bold text-white mb-2">⚡ Firebase Cloud Sync & Backup</h3>
+                                <p className="text-xs text-slate-400 mb-4">Paste your Firebase configuration object below (both standard JS object format and JSON are supported).</p>
                                 
                                 <div className="space-y-4 mb-6">
                                     <div>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Firebase Config Object</label>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Firebase Config Object</label>
                                         <textarea 
                                             rows="5"
                                             placeholder={`{ apiKey: "...", authDomain: "...", projectId: "...", ... }`}
@@ -854,14 +1260,14 @@
                                                 setFirebaseConfigInput(e.target.value);
                                                 localStorage.setItem('goal_tracker_fb_config', e.target.value);
                                             }}
-                                            className="w-full px-3 py-2 border rounded-xl text-xs font-mono bg-slate-50 border-slate-300"
+                                            className="w-full px-3 py-2 border rounded-xl text-xs font-mono bg-slate-800 text-slate-100 placeholder-slate-500 border-slate-700"
                                         ></textarea>
                                     </div>
 
-                                    <div className="flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                    <div className="flex items-center justify-between bg-slate-800/80 p-4 rounded-xl border border-slate-700">
                                         <div>
-                                            <div className="text-sm font-bold text-slate-800">Enable Live Cloud Sync</div>
-                                            <div className="text-xs text-slate-500">Syncs automatically in real time across devices</div>
+                                            <div className="text-sm font-bold text-slate-100">Enable Live Cloud Sync</div>
+                                            <div className="text-xs text-slate-400">Syncs automatically in real time across devices</div>
                                         </div>
                                         <input 
                                             type="checkbox"
@@ -870,17 +1276,17 @@
                                                 setIsCloudSyncActive(e.target.checked);
                                                 localStorage.setItem('goal_tracker_cloud_active', e.target.checked ? 'true' : 'false');
                                             }}
-                                            className="w-5 h-5 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                                            className="w-5 h-5 text-blue-500 bg-slate-900 rounded border-slate-600 focus:ring-blue-500 cursor-pointer"
                                         />
                                     </div>
 
-                                    <div className="border-t pt-4 space-y-2">
-                                        <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">Manual JSON Backup</div>
+                                    <div className="border-t border-slate-800 pt-4 space-y-2">
+                                        <div className="text-xs font-bold text-slate-300 uppercase tracking-wider">Manual JSON Backup</div>
                                         <div className="flex gap-2">
-                                            <button onClick={exportBackup} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-xs transition">
+                                            <button onClick={exportBackup} className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium rounded-xl text-xs transition">
                                                 📥 Export JSON
                                             </button>
-                                            <label className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-xs transition text-center cursor-pointer">
+                                            <label className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium rounded-xl text-xs transition text-center cursor-pointer">
                                                 📤 Import JSON
                                                 <input type="file" accept=".json" onChange={importBackup} className="hidden" />
                                             </label>
@@ -889,7 +1295,7 @@
                                 </div>
 
                                 <div className="flex justify-end">
-                                    <button onClick={() => setIsSyncModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-700">Save & Close</button>
+                                    <button onClick={() => setIsSyncModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-500">Save & Close</button>
                                 </div>
                             </div>
                         </div>
@@ -898,7 +1304,8 @@
             );
         }
 
-        ReactDOM.render(<App />, document.getElementById('root'));
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
     </script>
 </body>
 </html>

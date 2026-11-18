@@ -72,7 +72,7 @@
                         id: 'research', 
                         name: 'Research / Analysis', 
                         tasks: [
-                            { id: 'con2', name: '10 hours / week logged', freqType: 'weekly', completed: {}, comments: '', archived: false }
+                            { id: 'con2', name: '10 hours / week logged', freqType: 'weekly', targetValue: 10, targetUnit: 'hrs', progress: {}, completed: {}, comments: '', archived: false }
                         ] 
                     }
                 ]
@@ -87,7 +87,7 @@
                         name: 'Physical', 
                         tasks: [
                             { id: 's2', name: 'Mobility / core training (15 min)', freqType: 'daily', completed: {}, comments: '', archived: false },
-                            { id: 's3', name: '10 miles running', freqType: 'weekly', completed: {}, comments: '', archived: false }
+                            { id: 's3', name: '10 miles running', freqType: 'weekly', targetValue: 10, targetUnit: 'mi', progress: {}, completed: {}, comments: '', archived: false }
                         ] 
                     }
                 ]
@@ -185,7 +185,20 @@
                     };
                     return parsed.map(cat => ({
                         ...cat,
-                        color: darkColorMap[cat.id] || (cat.color && cat.color.includes('950') ? cat.color : 'bg-slate-800 text-slate-200 border-slate-700')
+                        color: darkColorMap[cat.id] || (cat.color && cat.color.includes('950') ? cat.color : 'bg-slate-800 text-slate-200 border-slate-700'),
+                        subcomponents: (cat.subcomponents || []).map(sub => ({
+                            ...sub,
+                            tasks: (sub.tasks || []).map(t => {
+                                // Automatically upgrade default 10-mile / 10-hour tasks if saved from earlier versions
+                                if (t.id === 'con2' && t.targetValue === undefined) {
+                                    return { ...t, targetValue: 10, targetUnit: 'hrs', progress: t.progress || {} };
+                                }
+                                if (t.id === 's3' && t.targetValue === undefined) {
+                                    return { ...t, targetValue: 10, targetUnit: 'mi', progress: t.progress || {} };
+                                }
+                                return { ...t, progress: t.progress || {} };
+                            })
+                        }))
                     }));
                 } catch (e) {
                     return initialCategories;
@@ -209,7 +222,7 @@
             const [templateTargetCat, setTemplateTargetCat] = useState(initialCategories[0].id);
             const [templateTargetSub, setTemplateTargetSub] = useState(initialCategories[0].subcomponents[0].id);
 
-            // Task Detail / Edit Modal state (Due Date, Comments, Recurrence, & Archive)
+            // Task Detail / Edit Modal state (Due Date, Comments, Recurrence, Numeric Target, & Archive)
             const [editingTaskCtx, setEditingTaskCtx] = useState(null);
             const [editTaskName, setEditTaskName] = useState('');
             const [editTaskFreqType, setEditTaskFreqType] = useState('daily');
@@ -219,6 +232,8 @@
             const [editTaskDueDate, setEditTaskDueDate] = useState('');
             const [editTaskComments, setEditTaskComments] = useState('');
             const [editTaskArchived, setEditTaskArchived] = useState(false);
+            const [editTaskTargetValue, setEditTaskTargetValue] = useState('');
+            const [editTaskTargetUnit, setEditTaskTargetUnit] = useState('');
 
             // Custom Confirmation & Notification UI
             const [confirmDialog, setConfirmDialog] = useState(null);
@@ -234,6 +249,8 @@
             const [newTaskMultiDays, setNewTaskMultiDays] = useState([2]);
             const [newTaskDueDate, setNewTaskDueDate] = useState(() => formatLocalDate(new Date()));
             const [newTaskComments, setNewTaskComments] = useState('');
+            const [newTaskTargetValue, setNewTaskTargetValue] = useState('');
+            const [newTaskTargetUnit, setNewTaskTargetUnit] = useState('');
 
             // Report fields
             const [reportTimeframe, setReportTimeframe] = useState('weekly');
@@ -426,12 +443,23 @@
             };
 
             const isTaskCompletedOnDate = (task, dateStr = currentDate) => {
-                if (!task.completed) return false;
                 const key = getTaskCompletionKey(task, dateStr);
+                if (task.targetValue && Number(task.targetValue) > 0) {
+                    const currentVal = Number((task.progress && task.progress[key]) || 0);
+                    return currentVal >= Number(task.targetValue);
+                }
+                if (!task.completed) return false;
                 if (task.completed[key]) return true;
                 // Legacy fallback for older saved keys
                 if (task.completed[dateStr]) return true;
                 return false;
+            };
+
+            // Get current numeric logged progress for a numeric-target task
+            const getTaskNumericProgress = (task, dateStr = currentDate) => {
+                const refDate = task.freqType === 'current-week' && task.targetMonday ? task.targetMonday : dateStr;
+                const key = getTaskCompletionKey(task, refDate);
+                return Number((task.progress && task.progress[key]) || 0);
             };
 
             // Check if a task is overdue relative to currentDate
@@ -496,7 +524,7 @@
                 return true;
             };
 
-            // Filter tasks based on active view tab & archive toggle:
+            // Filter tasks based on active view tab & archive toggle
             const isTaskVisibleForView = (task, activeView = view) => {
                 if (showArchived) {
                     return !!task.archived;
@@ -548,6 +576,17 @@
                                     const refDate = task.freqType === 'current-week' && task.targetMonday ? task.targetMonday : currentDate;
                                     const key = getTaskCompletionKey(task, refDate);
                                     const currentStatus = isTaskCompletedOnDate(task, refDate);
+
+                                    // If numeric goal, toggling checkbox jumps to targetValue or resets to 0
+                                    if (task.targetValue && Number(task.targetValue) > 0) {
+                                        const nextVal = currentStatus ? 0 : Number(task.targetValue);
+                                        return {
+                                            ...task,
+                                            progress: { ...(task.progress || {}), [key]: nextVal },
+                                            completed: { ...task.completed, [key]: !currentStatus }
+                                        };
+                                    }
+
                                     const updatedCompleted = { ...task.completed, [key]: !currentStatus };
                                     if (currentStatus && task.completed[refDate]) {
                                         delete updatedCompleted[refDate];
@@ -555,6 +594,35 @@
                                     return {
                                         ...task,
                                         completed: updatedCompleted
+                                    };
+                                })
+                            };
+                        })
+                    };
+                }));
+            };
+
+            // Update numeric progress directly (supports decimals & values > targetValue)
+            const updateTaskNumericValue = (catId, subId, taskId, rawValue) => {
+                const parsedNum = rawValue === '' ? 0 : Math.max(0, parseFloat(rawValue) || 0);
+                updateCategoriesAndCloud(prev => prev.map(cat => {
+                    if (cat.id !== catId) return cat;
+                    return {
+                        ...cat,
+                        subcomponents: cat.subcomponents.map(sub => {
+                            if (sub.id !== subId) return sub;
+                            return {
+                                ...sub,
+                                tasks: sub.tasks.map(task => {
+                                    if (task.id !== taskId) return task;
+                                    const refDate = task.freqType === 'current-week' && task.targetMonday ? task.targetMonday : currentDate;
+                                    const key = getTaskCompletionKey(task, refDate);
+                                    const target = Number(task.targetValue || 0);
+                                    const isMet = target > 0 && parsedNum >= target;
+                                    return {
+                                        ...task,
+                                        progress: { ...(task.progress || {}), [key]: parsedNum },
+                                        completed: { ...task.completed, [key]: isMet }
                                     };
                                 })
                             };
@@ -581,6 +649,8 @@
                 setEditTaskDueDate(task.dueDate || '');
                 setEditTaskComments(task.comments || '');
                 setEditTaskArchived(!!task.archived);
+                setEditTaskTargetValue(task.targetValue ? String(task.targetValue) : '');
+                setEditTaskTargetUnit(task.targetUnit || '');
             };
 
             const handleSaveTaskDetails = (e) => {
@@ -595,6 +665,10 @@
                     showToast('Please select at least one week and one day of the month.');
                     return;
                 }
+
+                const parsedTarget = editTaskTargetValue !== '' && Number(editTaskTargetValue) > 0
+                    ? Number(editTaskTargetValue)
+                    : null;
 
                 const { catId, subId, taskId } = editingTaskCtx;
                 updateCategoriesAndCloud(prev => prev.map(cat => {
@@ -619,7 +693,9 @@
                                             : null,
                                         dueDate: editTaskDueDate || null,
                                         comments: editTaskComments,
-                                        archived: editTaskArchived
+                                        archived: editTaskArchived,
+                                        targetValue: parsedTarget,
+                                        targetUnit: parsedTarget ? (editTaskTargetUnit.trim() || '') : ''
                                     };
                                 })
                             };
@@ -667,6 +743,10 @@
                     return;
                 }
 
+                const parsedTarget = newTaskTargetValue !== '' && Number(newTaskTargetValue) > 0
+                    ? Number(newTaskTargetValue)
+                    : null;
+
                 const newTask = {
                     id: 'task_' + Date.now(),
                     name: newTaskName.trim(),
@@ -678,6 +758,9 @@
                     dueDate: newTaskFreqType === 'one-off' ? newTaskDueDate : null,
                     comments: newTaskComments.trim(),
                     archived: false,
+                    targetValue: parsedTarget,
+                    targetUnit: parsedTarget ? (newTaskTargetUnit.trim() || '') : '',
+                    progress: {},
                     completed: {}
                 };
 
@@ -697,6 +780,8 @@
 
                 setNewTaskName('');
                 setNewTaskComments('');
+                setNewTaskTargetValue('');
+                setNewTaskTargetUnit('');
                 setIsTaskModalOpen(false);
                 showToast('Task added!');
             };
@@ -717,6 +802,7 @@
                     dueDate: null,
                     comments: t.comments || '',
                     archived: false,
+                    progress: {},
                     completed: {}
                 }));
 
@@ -846,9 +932,14 @@
                             total++;
                             const refDate = task.freqType === 'current-week' && task.targetMonday ? task.targetMonday : currentDate;
                             const done = isTaskCompletedOnDate(task, refDate);
+                            const hasNumeric = task.targetValue && Number(task.targetValue) > 0;
+                            const loggedNum = hasNumeric ? getTaskNumericProgress(task, refDate) : null;
+                            const numericSummary = hasNumeric
+                                ? ` (${loggedNum} / ${task.targetValue}${task.targetUnit ? ' ' + task.targetUnit : ''})`
+                                : '';
                             const taskSummary = {
                                 id: task.id,
-                                name: task.name,
+                                name: `${task.name}${numericSummary}`,
                                 categoryName: cat.name,
                                 subName: sub.name,
                                 freqLabel: getFreqLabel(task),
@@ -1030,7 +1121,7 @@
                                     {syncStatus}
                                 </span>
                             </div>
-                            <p className="text-sm text-slate-400">Live multi-device sync, habit streaks, templates, and trend analytics.</p>
+                            <p className="text-sm text-slate-400">Live multi-device sync, numeric targets, habit streaks, and trend analytics.</p>
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
                             <div className="flex items-center bg-slate-800 rounded-xl p-1 border border-slate-700">
@@ -1111,77 +1202,130 @@
                                                                 const isChecked = isTaskCompletedOnDate(task, refDate);
                                                                 const overdue = isTaskOverdue(task, currentDate);
                                                                 const streak = getDailyStreak(task, currentDate);
+                                                                const hasNumericTarget = task.targetValue && Number(task.targetValue) > 0;
+                                                                const targetVal = hasNumericTarget ? Number(task.targetValue) : 0;
+                                                                const currentLogged = hasNumericTarget ? getTaskNumericProgress(task, refDate) : 0;
+                                                                const remainingVal = hasNumericTarget ? Math.max(0, +(targetVal - currentLogged).toFixed(2)) : 0;
+                                                                const extraVal = hasNumericTarget && currentLogged > targetVal ? +(currentLogged - targetVal).toFixed(2) : 0;
+                                                                const pctBar = hasNumericTarget ? Math.min(100, Math.round((currentLogged / targetVal) * 100)) : 0;
+
                                                                 return (
                                                                     <li 
                                                                         key={task.id} 
-                                                                        className={`flex items-center justify-between group p-1.5 rounded-xl transition ${
+                                                                        className={`flex flex-col gap-2 group p-2 rounded-xl transition ${
                                                                             overdue 
                                                                                 ? 'bg-red-950/40 border border-red-800/80' 
                                                                                 : 'hover:bg-slate-800/60 border border-transparent'
                                                                         }`}
                                                                     >
-                                                                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                                                                            <input 
-                                                                                type="checkbox" 
-                                                                                checked={isChecked}
-                                                                                onChange={() => toggleTask(cat.id, sub.id, task.id)}
-                                                                                className="w-4 h-4 text-blue-500 bg-slate-800 rounded border-slate-600 focus:ring-blue-500 shrink-0 cursor-pointer"
-                                                                            />
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => openTaskDetailModal(cat.id, sub.id, task)}
-                                                                                title="Click to edit task, frequency, due date, comments, or archive"
-                                                                                className="text-left flex flex-wrap items-center gap-1.5 min-w-0 flex-1"
-                                                                            >
-                                                                                <span className={`text-sm truncate ${isChecked ? 'line-through text-slate-500' : overdue ? 'text-red-300 font-semibold' : 'text-slate-200 font-medium hover:text-blue-400'}`}>
-                                                                                    {task.name}
+                                                                        <div className="flex items-center justify-between w-full">
+                                                                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                                                <input 
+                                                                                    type="checkbox" 
+                                                                                    checked={isChecked}
+                                                                                    onChange={() => toggleTask(cat.id, sub.id, task.id)}
+                                                                                    className="w-4 h-4 text-blue-500 bg-slate-800 rounded border-slate-600 focus:ring-blue-500 shrink-0 cursor-pointer"
+                                                                                />
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => openTaskDetailModal(cat.id, sub.id, task)}
+                                                                                    title="Click to edit task, numeric target, frequency, due date, comments, or archive"
+                                                                                    className="text-left flex flex-wrap items-center gap-1.5 min-w-0 flex-1"
+                                                                                >
+                                                                                    <span className={`text-sm truncate ${isChecked ? 'line-through text-slate-500' : overdue ? 'text-red-300 font-semibold' : 'text-slate-200 font-medium hover:text-blue-400'}`}>
+                                                                                        {task.name}
+                                                                                    </span>
+                                                                                    {streak >= 2 && (
+                                                                                        <span title={`${streak}-day completion streak!`} className="text-[10px] font-bold bg-orange-950/90 text-orange-300 border border-orange-700/80 px-1.5 py-0.5 rounded-full">
+                                                                                            🔥 {streak}d
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {overdue && (
+                                                                                        <span className="text-[10px] font-bold bg-red-600 text-white px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                                                                            Overdue
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {task.archived && (
+                                                                                        <span className="text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-800 px-1.5 py-0.5 rounded uppercase">
+                                                                                            Archived
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {task.dueDate && !overdue && (
+                                                                                        <span className="text-[10px] bg-amber-950/70 text-amber-300 border border-amber-800/80 px-1.5 py-0.5 rounded font-medium">
+                                                                                            📅 {task.dueDate}
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {task.comments && task.comments.trim() !== '' && (
+                                                                                        <span className="text-[10px] bg-sky-950/70 text-sky-300 border border-sky-800/80 px-1.5 py-0.5 rounded font-medium">
+                                                                                            💬 Note
+                                                                                        </span>
+                                                                                    )}
+                                                                                </button>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2 shrink-0 ml-2">
+                                                                                <span className="text-[10px] bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded-md font-medium">
+                                                                                    {getFreqLabel(task)}
                                                                                 </span>
-                                                                                {streak >= 2 && (
-                                                                                    <span title={`${streak}-day completion streak!`} className="text-[10px] font-bold bg-orange-950/90 text-orange-300 border border-orange-700/80 px-1.5 py-0.5 rounded-full">
-                                                                                        🔥 {streak}d
-                                                                                    </span>
-                                                                                )}
-                                                                                {overdue && (
-                                                                                    <span className="text-[10px] font-bold bg-red-600 text-white px-1.5 py-0.5 rounded uppercase tracking-wider">
-                                                                                        Overdue
-                                                                                    </span>
-                                                                                )}
-                                                                                {task.archived && (
-                                                                                    <span className="text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-800 px-1.5 py-0.5 rounded uppercase">
-                                                                                        Archived
-                                                                                    </span>
-                                                                                )}
-                                                                                {task.dueDate && !overdue && (
-                                                                                    <span className="text-[10px] bg-amber-950/70 text-amber-300 border border-amber-800/80 px-1.5 py-0.5 rounded font-medium">
-                                                                                        📅 {task.dueDate}
-                                                                                    </span>
-                                                                                )}
-                                                                                {task.comments && task.comments.trim() !== '' && (
-                                                                                    <span className="text-[10px] bg-sky-950/70 text-sky-300 border border-sky-800/80 px-1.5 py-0.5 rounded font-medium">
-                                                                                        💬 Note
-                                                                                    </span>
-                                                                                )}
-                                                                            </button>
+                                                                                <button 
+                                                                                    onClick={() => openTaskDetailModal(cat.id, sub.id, task)}
+                                                                                    title="Edit / Archive task"
+                                                                                    className="text-slate-500 hover:text-blue-400 transition text-xs px-1 font-bold"
+                                                                                >
+                                                                                    ✎
+                                                                                </button>
+                                                                                <button 
+                                                                                    onClick={() => requestDeleteTask(cat.id, sub.id, task)}
+                                                                                    title="Delete task"
+                                                                                    className="text-slate-600 hover:text-red-400 transition text-xs px-1 font-bold"
+                                                                                >
+                                                                                    ✕
+                                                                                </button>
+                                                                            </div>
                                                                         </div>
-                                                                        <div className="flex items-center gap-2 shrink-0 ml-2">
-                                                                            <span className="text-[10px] bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded-md font-medium">
-                                                                                {getFreqLabel(task)}
-                                                                            </span>
-                                                                            <button 
-                                                                                onClick={() => openTaskDetailModal(cat.id, sub.id, task)}
-                                                                                title="Edit / Archive task"
-                                                                                className="text-slate-500 hover:text-blue-400 transition text-xs px-1 font-bold"
-                                                                            >
-                                                                                ✎
-                                                                            </button>
-                                                                            <button 
-                                                                                onClick={() => requestDeleteTask(cat.id, sub.id, task)}
-                                                                                title="Delete task"
-                                                                                className="text-slate-600 hover:text-red-400 transition text-xs px-1 font-bold"
-                                                                            >
-                                                                                ✕
-                                                                            </button>
-                                                                        </div>
+
+                                                                        {/* Numeric Progress Input & Remaining / Exceeded Readout */}
+                                                                        {hasNumericTarget && (
+                                                                            <div className="pl-7 pr-1 flex flex-col gap-1.5">
+                                                                                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                                                                    <div className="flex items-center gap-1.5">
+                                                                                        <input
+                                                                                            type="number"
+                                                                                            step="any"
+                                                                                            min="0"
+                                                                                            value={currentLogged === 0 ? '' : currentLogged}
+                                                                                            placeholder="0"
+                                                                                            onChange={(e) => updateTaskNumericValue(cat.id, sub.id, task.id, e.target.value)}
+                                                                                            aria-label={`Logged progress for ${task.name}`}
+                                                                                            className="w-20 px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                                                        />
+                                                                                        <span className="text-slate-400 font-medium">
+                                                                                            / {targetVal} {task.targetUnit || ''}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <div className="text-[11px] font-semibold">
+                                                                                        {extraVal > 0 ? (
+                                                                                            <span className="text-emerald-400">
+                                                                                                🎉 Goal met! (+{extraVal} {task.targetUnit || ''} bonus)
+                                                                                            </span>
+                                                                                        ) : remainingVal === 0 ? (
+                                                                                            <span className="text-emerald-400">
+                                                                                                ✅ Goal reached!
+                                                                                            </span>
+                                                                                        ) : (
+                                                                                            <span className="text-slate-400">
+                                                                                                {remainingVal} {task.targetUnit || ''} left
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                                                                    <div
+                                                                                        className={`h-1.5 rounded-full transition-all duration-300 ${isChecked ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                                                                                        style={{ width: `${pctBar}%` }}
+                                                                                    ></div>
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
                                                                     </li>
                                                                 );
                                                             })}
@@ -1201,7 +1345,7 @@
                         })}
                     </div>
 
-                    {/* Task Detail / Edit Modal (Recurrence, Due Date, Comments, Archive) */}
+                    {/* Task Detail / Edit Modal (Recurrence, Due Date, Numeric Target, Comments, Archive) */}
                     {editingTaskCtx && (
                         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                             <div className="bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-800 max-h-[90vh] overflow-y-auto">
@@ -1325,6 +1469,32 @@
                                             onChange={e => setEditTaskDueDate(e.target.value)}
                                             className="w-full px-3 py-2 border rounded-xl text-sm bg-slate-800 text-slate-100 border-slate-700 [color-scheme:dark]"
                                         />
+                                    </div>
+
+                                    {/* Optional Numeric Target & Unit */}
+                                    <div className="grid grid-cols-2 gap-3 bg-slate-800/50 p-3 rounded-xl border border-slate-700/80">
+                                        <div>
+                                            <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Numeric Goal Target (Opt.)</label>
+                                            <input 
+                                                type="number" 
+                                                step="any"
+                                                min="0"
+                                                placeholder="e.g. 10"
+                                                value={editTaskTargetValue}
+                                                onChange={e => setEditTaskTargetValue(e.target.value)}
+                                                className="w-full px-3 py-1.5 border rounded-lg text-sm bg-slate-900 text-slate-100 placeholder-slate-500 border-slate-700"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Unit Label (Opt.)</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="e.g. mi, hrs, pages"
+                                                value={editTaskTargetUnit}
+                                                onChange={e => setEditTaskTargetUnit(e.target.value)}
+                                                className="w-full px-3 py-1.5 border rounded-lg text-sm bg-slate-900 text-slate-100 placeholder-slate-500 border-slate-700"
+                                            />
+                                        </div>
                                     </div>
 
                                     <div>
@@ -1509,6 +1679,32 @@
                                             />
                                         </div>
                                     )}
+
+                                    {/* Optional Numeric Target & Unit */}
+                                    <div className="grid grid-cols-2 gap-3 bg-slate-800/50 p-3 rounded-xl border border-slate-700/80">
+                                        <div>
+                                            <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Numeric Goal Target (Opt.)</label>
+                                            <input 
+                                                type="number" 
+                                                step="any"
+                                                min="0"
+                                                placeholder="e.g. 10"
+                                                value={newTaskTargetValue}
+                                                onChange={e => setNewTaskTargetValue(e.target.value)}
+                                                className="w-full px-3 py-1.5 border rounded-lg text-sm bg-slate-900 text-slate-100 placeholder-slate-500 border-slate-700"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Unit Label (Opt.)</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="e.g. mi, hrs, pages"
+                                                value={newTaskTargetUnit}
+                                                onChange={e => setNewTaskTargetUnit(e.target.value)}
+                                                className="w-full px-3 py-1.5 border rounded-lg text-sm bg-slate-900 text-slate-100 placeholder-slate-500 border-slate-700"
+                                            />
+                                        </div>
+                                    </div>
 
                                     <div>
                                         <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Initial Comment / Note (Optional)</label>
